@@ -53,6 +53,10 @@ auto disp = molsymm::unique_displacements(a, 1e-3);
 
 ## Python
 
+```bash
+pip install molsymm
+```
+
 ```python
 import molsymm
 import numpy as np
@@ -63,6 +67,12 @@ a = molsymm.analyze([8, 1, 1], np.array([[0, 0, 0.1173],
 print(a.point_group, a.symmetry_number)
 d = a.displacements(step=1e-3)
 print(d.n)
+```
+
+From a source checkout (needs CMake ≥ 3.20 and a C++20 compiler):
+
+```bash
+pip install .
 ```
 
 ## Fortran

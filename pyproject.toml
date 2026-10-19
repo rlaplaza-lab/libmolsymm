@@ -1,3 +1,62 @@
+[build-system]
+requires = [
+  "scikit-build-core>=0.10",
+  "nanobind>=2.2",
+  "numpy>=1.26",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "molsymm"
+version = "1.0.0"
+description = "Molecular point-group symmetry detection and symmetrization"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "libmolsymm contributors" }]
+keywords = ["symmetry", "point-group", "chemistry", "hessians"]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Chemistry",
+]
+dependencies = [
+  "numpy>=1.26",
+]
+
+[project.urls]
+Homepage = "https://github.com/rlaplaza-lab/libmolsymm"
+Repository = "https://github.com/rlaplaza-lab/libmolsymm"
+Issues = "https://github.com/rlaplaza-lab/libmolsymm/issues"
+
+[project.optional-dependencies]
+test = ["pytest", "numpy"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+wheel.packages = []
+cmake.build-type = "Release"
+build-dir = "build/{wheel_tag}"
+
+[tool.scikit-build.cmake.define]
+MOLSYMM_BUILD_PYTHON = "ON"
+MOLSYMM_BUILD_TESTS = "OFF"
+MOLSYMM_BUILD_FORTRAN = "OFF"
+MOLSYMM_BUILD_SHARED = "OFF"
+
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-*"
+skip = "pp* *-musllinux_*"
+test-requires = ["pytest", "numpy"]
+test-command = "python -m pytest {project}/tests/test_python.py -q"
+test-extras = []
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100

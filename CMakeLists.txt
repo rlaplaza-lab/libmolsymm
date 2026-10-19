@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(molsymm VERSION 0.1.0 LANGUAGES CXX)
+project(molsymm VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -10,6 +10,14 @@ option(MOLSYMM_BUILD_PYTHON "Build nanobind Python module" OFF)
 option(MOLSYMM_BUILD_FORTRAN "Build Fortran module" OFF)
 option(MOLSYMM_BUILD_TESTS "Build tests" ON)
 option(MOLSYMM_BUILD_SHARED "Build shared library" ON)
+
+# scikit-build-core: ship a single extension module with a static core.
+if(DEFINED SKBUILD)
+  set(MOLSYMM_BUILD_PYTHON ON CACHE BOOL "" FORCE)
+  set(MOLSYMM_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(MOLSYMM_BUILD_FORTRAN OFF CACHE BOOL "" FORCE)
+  set(MOLSYMM_BUILD_SHARED OFF CACHE BOOL "" FORCE)
+endif()
 
 include(FetchContent)
 find_package(Eigen3 3.4 QUIET NO_MODULE)
@@ -59,6 +67,8 @@ if(_molsymm_eigen_inc)
   target_include_directories(molsymm SYSTEM PUBLIC ${_molsymm_eigen_inc})
 endif()
 target_compile_features(molsymm PUBLIC cxx_std_20)
+# Needed when a static core is linked into the Python extension module.
+set_target_properties(molsymm PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 function(molsymm_set_warnings target)
   if(MSVC)
@@ -72,45 +82,47 @@ endfunction()
 
 molsymm_set_warnings(molsymm)
 
-include(GNUInstallDirs)
-install(TARGETS molsymm
-  EXPORT MolsymmTargets
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-install(DIRECTORY include/molsymm DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(EXPORT MolsymmTargets
-  FILE MolsymmTargets.cmake
-  NAMESPACE molsymm::
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Molsymm
-)
+if(NOT DEFINED SKBUILD)
+  include(GNUInstallDirs)
+  install(TARGETS molsymm
+    EXPORT MolsymmTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+  )
+  install(DIRECTORY include/molsymm DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+  install(EXPORT MolsymmTargets
+    FILE MolsymmTargets.cmake
+    NAMESPACE molsymm::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Molsymm
+  )
 
-include(CMakePackageConfigHelpers)
-write_basic_package_version_file(
-  "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfigVersion.cmake"
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMajorVersion
-)
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MolsymmConfig.cmake.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfig.cmake"
-  @ONLY
-)
-install(FILES
-  "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfig.cmake"
-  "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfigVersion.cmake"
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Molsymm
-)
+  include(CMakePackageConfigHelpers)
+  write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+  )
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/MolsymmConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfig.cmake"
+    @ONLY
+  )
+  install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/MolsymmConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Molsymm
+  )
 
-configure_file(
-  "${CMAKE_CURRENT_SOURCE_DIR}/cmake/molsymm.pc.in"
-  "${CMAKE_CURRENT_BINARY_DIR}/molsymm.pc"
-  @ONLY
-)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/molsymm.pc"
-  DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
-)
+  configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/molsymm.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/molsymm.pc"
+    @ONLY
+  )
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/molsymm.pc"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+  )
+endif()
 
 if(MOLSYMM_BUILD_TESTS)
   enable_testing()
@@ -123,19 +135,24 @@ if(MOLSYMM_BUILD_TESTS)
   add_test(NAME molsymm_tests COMMAND molsymm_tests)
 endif()
 
-add_executable(analyze_xyz examples/analyze_xyz.cpp)
-target_link_libraries(analyze_xyz PRIVATE molsymm)
-molsymm_set_warnings(analyze_xyz)
+if(NOT DEFINED SKBUILD)
+  add_executable(analyze_xyz examples/analyze_xyz.cpp)
+  target_link_libraries(analyze_xyz PRIVATE molsymm)
+  molsymm_set_warnings(analyze_xyz)
+endif()
 
 if(MOLSYMM_BUILD_PYTHON)
   find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)
-  FetchContent_Declare(
-    nanobind
-    GIT_REPOSITORY https://github.com/wjakob/nanobind.git
-    GIT_TAG v2.2.0
-    GIT_SHALLOW TRUE
-  )
-  FetchContent_MakeAvailable(nanobind)
+  find_package(nanobind CONFIG QUIET)
+  if(NOT nanobind_FOUND)
+    FetchContent_Declare(
+      nanobind
+      GIT_REPOSITORY https://github.com/wjakob/nanobind.git
+      GIT_TAG v2.2.0
+      GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(nanobind)
+  endif()
   nanobind_add_module(molsymm_py python/molsymm.cpp)
   target_link_libraries(molsymm_py PRIVATE molsymm)
   set_target_properties(molsymm_py PROPERTIES OUTPUT_NAME molsymm)
@@ -156,6 +173,9 @@ if(MOLSYMM_BUILD_PYTHON)
     set_tests_properties(molsymm_python_test PROPERTIES
       ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:molsymm_py>;MOLSYMM_TEST_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/data;LD_PRELOAD=${_molsymm_libstdcxx_real}"
     )
+  endif()
+  if(DEFINED SKBUILD)
+    install(TARGETS molsymm_py LIBRARY DESTINATION . RUNTIME DESTINATION . ARCHIVE DESTINATION .)
   endif()
 endif()
 
