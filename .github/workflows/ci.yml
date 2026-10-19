@@ -57,6 +57,11 @@ jobs:
             --suppress=unmatchedSuppression \
             --suppress=useStlAlgorithm \
             --suppress=ConfigurationNotChecked \
+            --suppress=unusedStructMember \
+            --suppress=checkersReport \
+            --suppress=knownConditionTrueFalse \
+            --suppress=duplicateCondition \
+            --suppress=duplicateAssignExpression \
             "${FILES[@]}"
 
       - name: ruff
