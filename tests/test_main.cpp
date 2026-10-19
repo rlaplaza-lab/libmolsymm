@@ -402,8 +402,14 @@ molsymm::Molecule rattle_molecule(molsymm::Molecule mol, double amplitude, unsig
 void test_xyz_slight_rattle() {
   // IQmol high-symmetry geometries: tiny noise must not change the group.
   static const char* const iqmol_files[] = {
-      "c60.xyz",       "cubane.xyz",   "adamantane.xyz",  "coronene.xyz",
-      "corannulene.xyz", "ferrocene.xyz", "cyclopropane.xyz", "octahedral.xyz",
+      "c60.xyz",
+      "cubane.xyz",
+      "adamantane.xyz",
+      "coronene.xyz",
+      "corannulene.xyz",
+      "ferrocene.xyz",
+      "cyclopropane.xyz",
+      "octahedral.xyz",
   };
   unsigned seed = 42;
   for (const char* file : iqmol_files) {
@@ -461,8 +467,8 @@ void test_xyz_large_rattle() {
       tight.primary = 1e-3;
       auto a_tight = molsymm::analyze(mol, tight);
       expect(a_tight.point_group != c.expect_pg,
-             std::string(c.file) + " large rattle at 1e-3 should drop " + c.expect_pg +
-                 " got " + a_tight.point_group);
+             std::string(c.file) + " large rattle at 1e-3 should drop " + c.expect_pg + " got " +
+                 a_tight.point_group);
       molsymm::Tolerances loose;
       loose.primary = 2e-2;
       auto a_loose = molsymm::analyze(mol, loose);
