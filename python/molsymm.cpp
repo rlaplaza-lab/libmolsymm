@@ -88,18 +88,20 @@ NB_MODULE(molsymm, m) {
         if (positions.cols() != 3 && positions.rows() != 3) {
           throw molsymm::Error("positions must be (n,3) or (3,n)");
         }
-        Eigen::MatrixXd xyz;
-        if (positions.cols() == 3) {
-          xyz = positions.transpose(); // 3 x n
-        } else {
-          xyz = positions;
-        }
-        if (static_cast<int>(numbers.size()) != xyz.cols()) {
-          throw molsymm::Error("numbers/positions size mismatch");
-        }
-        molsymm::Molecule mol(numbers, xyz);
         molsymm::Tolerances tol;
         tol.primary = primary;
+        if (positions.cols() == 3) {
+          Eigen::MatrixXd xyz = positions.transpose();
+          if (static_cast<int>(numbers.size()) != xyz.cols()) {
+            throw molsymm::Error("numbers/positions size mismatch");
+          }
+          molsymm::Molecule mol(numbers, xyz);
+          return molsymm::analyze(mol, tol);
+        }
+        if (static_cast<int>(numbers.size()) != positions.cols()) {
+          throw molsymm::Error("numbers/positions size mismatch");
+        }
+        molsymm::Molecule mol(numbers, positions);
         return molsymm::analyze(mol, tol);
       },
       nb::arg("numbers"),

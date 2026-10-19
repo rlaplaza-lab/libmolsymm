@@ -2,8 +2,10 @@
 
 #include "molsymm/molsymm.hpp"
 
+#include <Eigen/Dense>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -51,9 +53,8 @@ int molsymm_analyze(const int* atomic_numbers,
     if (!atomic_numbers || !xyz || !out || n <= 0) {
       throw molsymm::Error("invalid arguments");
     }
-    std::vector<int> z(atomic_numbers, atomic_numbers + n);
-    std::vector<double> coords(xyz, xyz + 3 * n);
-    molsymm::Molecule mol(z, coords);
+    molsymm::Molecule mol(std::span<const int>{atomic_numbers, static_cast<std::size_t>(n)},
+                          std::span<const double>{xyz, static_cast<std::size_t>(3 * n)});
     molsymm::Tolerances tol;
     tol.primary = primary_tol;
     auto* handle = new molsymm_analysis;
@@ -316,12 +317,10 @@ int molsymm_gradient_from_energies(const molsymm_displacements* d,
       throw molsymm::Error("invalid arguments");
     }
     const int nu = static_cast<int>(d->set.displacements.size());
-    std::vector<double> ep(e_plus, e_plus + nu);
-    std::vector<double> em(e_minus, e_minus + nu);
-    Eigen::VectorXd g = d->set.gradient_from_energies(ep, em);
-    for (int i = 0; i < g.size(); ++i) {
-      grad_out[i] = g(i);
-    }
+    Eigen::VectorXd g = d->set.gradient_from_energies(
+        std::span<const double>{e_plus, static_cast<std::size_t>(nu)},
+        std::span<const double>{e_minus, static_cast<std::size_t>(nu)});
+    Eigen::Map<Eigen::VectorXd>(grad_out, g.size()) = g;
   });
 }
 
@@ -335,22 +334,15 @@ int molsymm_hessian_from_gradients(const molsymm_displacements* d,
     }
     const int nu = static_cast<int>(d->set.displacements.size());
     const int n3 = 3 * d->set.analysis.original.size();
-    std::vector<Eigen::VectorXd> gp(nu);
-    std::vector<Eigen::VectorXd> gm(nu);
+    std::vector<Eigen::VectorXd> gp(static_cast<std::size_t>(nu));
+    std::vector<Eigen::VectorXd> gm(static_cast<std::size_t>(nu));
     for (int u = 0; u < nu; ++u) {
-      gp[static_cast<std::size_t>(u)] = Eigen::VectorXd::Zero(n3);
-      gm[static_cast<std::size_t>(u)] = Eigen::VectorXd::Zero(n3);
-      for (int i = 0; i < n3; ++i) {
-        gp[static_cast<std::size_t>(u)](i) = g_plus[u * n3 + i];
-        gm[static_cast<std::size_t>(u)](i) = g_minus[u * n3 + i];
-      }
+      gp[static_cast<std::size_t>(u)] = Eigen::VectorXd::Map(g_plus + u * n3, n3);
+      gm[static_cast<std::size_t>(u)] = Eigen::VectorXd::Map(g_minus + u * n3, n3);
     }
     Eigen::MatrixXd H = d->set.hessian_from_gradients(gp, gm);
-    for (int r = 0; r < n3; ++r) {
-      for (int c = 0; c < n3; ++c) {
-        hess_out[r * n3 + c] = H(r, c);
-      }
-    }
+    Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+        hess_out, n3, n3) = H;
   });
 }
 

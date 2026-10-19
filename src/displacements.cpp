@@ -13,14 +13,14 @@ bool dirs_same_orbit(const Vec3& a, const Vec3& b, double tol) {
   return (a - b).norm() <= tol || (a + b).norm() <= tol;
 }
 
-std::vector<Operation> stabilizer(const Analysis& analysis, int atom) {
-  std::vector<Operation> stab;
+std::vector<const Operation*> stabilizer(const Analysis& analysis, int atom) {
+  std::vector<const Operation*> stab;
   for (const Operation& op : analysis.operations) {
     if (static_cast<int>(op.image.size()) != analysis.molecule.size()) {
       continue;
     }
     if (op.image[static_cast<std::size_t>(atom)] == atom) {
-      stab.push_back(op);
+      stab.push_back(&op);
     }
   }
   return stab;
@@ -89,8 +89,8 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
 
     // Invariant subspace = span{ R_g cand }
     std::vector<Vec3> subspace;
-    for (const Operation& op : stab) {
-      Vec3 v = op.matrix * cand;
+    for (const Operation* op : stab) {
+      Vec3 v = op->matrix * cand;
       if (v.norm() < 1e-10) {
         continue;
       }
@@ -198,17 +198,6 @@ Molecule to_original_frame(const Analysis& analysis, const Molecule& frame_mol) 
   for (int i = 0; i < out.size(); ++i) {
     out.atoms[static_cast<std::size_t>(i)].position =
         analysis.frame_to_input(frame_mol.atoms[static_cast<std::size_t>(i)].position);
-  }
-  return out;
-}
-
-Eigen::VectorXd
-rotate_pattern(const Analysis& analysis, const Operation& op, const Eigen::VectorXd& p) {
-  const int n = analysis.molecule.size();
-  Eigen::VectorXd out = Eigen::VectorXd::Zero(3 * n);
-  for (int i = 0; i < n; ++i) {
-    const int j = op.image[static_cast<std::size_t>(i)];
-    out.segment<3>(3 * j) = op.matrix * p.segment<3>(3 * i);
   }
   return out;
 }
@@ -386,7 +375,13 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
       if (static_cast<int>(op.image.size()) != n) {
         continue;
       }
-      Eigen::VectorXd e_img = rotate_pattern(analysis, op, e);
+      Eigen::VectorXd e_img = Eigen::VectorXd::Zero(n3);
+      Eigen::VectorXd c_img = Eigen::VectorXd::Zero(n3);
+      for (int i = 0; i < n; ++i) {
+        const int j = op.image[static_cast<std::size_t>(i)];
+        e_img.segment<3>(3 * j) = op.matrix * e.segment<3>(3 * i);
+        c_img.segment<3>(3 * j) = op.matrix * col.segment<3>(3 * i);
+      }
       const double nrm = e_img.norm();
       if (nrm < 1e-12) {
         continue;
@@ -395,8 +390,8 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
       if (pattern_seen(e_img, e_cols)) {
         continue;
       }
-      e_cols.push_back(e_img);
-      c_cols.emplace_back(rotate_pattern(analysis, op, col) / nrm);
+      e_cols.push_back(std::move(e_img));
+      c_cols.emplace_back(c_img / nrm);
     }
   }
 

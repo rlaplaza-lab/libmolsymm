@@ -3,6 +3,7 @@
 #include "internal.hpp"
 #include "molsymm/error.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace molsymm {
@@ -22,14 +23,19 @@ double Analysis::symmetrize() {
   }
 
   if (linear || point_group == "Cinfv" || point_group == "Dinfh") {
-    // Snap to z axis; for Dinfh also enforce inversion pairing
     for (int i = 0; i < n; ++i) {
       Vec3& p = molecule.atoms[static_cast<std::size_t>(i)].position;
       p.x() = 0.0;
       p.y() = 0.0;
     }
     if (point_group == "Dinfh") {
-      // Average z with inversion partner of same Z
+      const Operation* inv = nullptr;
+      for (const Operation& op : operations) {
+        if (op.kind == OperationKind::Inversion && static_cast<int>(op.image.size()) == n) {
+          inv = &op;
+          break;
+        }
+      }
       std::vector<char> done(n, 0);
       for (int i = 0; i < n; ++i) {
         if (done[static_cast<std::size_t>(i)]) {
@@ -37,16 +43,26 @@ double Analysis::symmetrize() {
         }
         const Vec3 pi = molecule.atoms[static_cast<std::size_t>(i)].position;
         int partner = -1;
-        double best = 1e9;
-        for (int j = 0; j < n; ++j) {
-          if (molecule.atoms[static_cast<std::size_t>(j)].atomic_number !=
-              molecule.atoms[static_cast<std::size_t>(i)].atomic_number) {
-            continue;
+        if (inv != nullptr) {
+          partner = inv->image[static_cast<std::size_t>(i)];
+          if (partner < 0 || partner >= n ||
+              molecule.atoms[static_cast<std::size_t>(partner)].atomic_number !=
+                  molecule.atoms[static_cast<std::size_t>(i)].atomic_number) {
+            partner = -1;
           }
-          const double d = (molecule.atoms[static_cast<std::size_t>(j)].position + pi).norm();
-          if (d < best) {
-            best = d;
-            partner = j;
+        }
+        if (partner < 0) {
+          double best = 1e9;
+          for (int j = 0; j < n; ++j) {
+            if (molecule.atoms[static_cast<std::size_t>(j)].atomic_number !=
+                molecule.atoms[static_cast<std::size_t>(i)].atomic_number) {
+              continue;
+            }
+            const double d = (molecule.atoms[static_cast<std::size_t>(j)].position + pi).norm();
+            if (d < best) {
+              best = d;
+              partner = j;
+            }
           }
         }
         if (partner >= 0) {
@@ -65,21 +81,19 @@ double Analysis::symmetrize() {
     // r'_i = (1/|G|) Σ_g R_g r_{g^{-1} i}
     const double inv_g = 1.0 / static_cast<double>(operations.size());
     std::vector<Vec3> avg(n, Vec3::Zero());
+    std::vector<char> seen(static_cast<std::size_t>(n), 0);
     for (const Operation& op : operations) {
       if (static_cast<int>(op.image.size()) != n) {
-        continue;
+        throw Error("operation image size mismatch");
       }
-      std::vector<int> inv_image(static_cast<std::size_t>(n), -1);
+      std::fill(seen.begin(), seen.end(), 0);
       for (int j = 0; j < n; ++j) {
         const int i = op.image[static_cast<std::size_t>(j)];
-        if (i < 0 || i >= n || inv_image[static_cast<std::size_t>(i)] >= 0) {
+        if (i < 0 || i >= n || seen[static_cast<std::size_t>(i)]) {
           throw Error("operation image is not a permutation");
         }
-        inv_image[static_cast<std::size_t>(i)] = j;
-      }
-      for (int i = 0; i < n; ++i) {
-        const int src = inv_image[static_cast<std::size_t>(i)];
-        avg[static_cast<std::size_t>(i)] += op.matrix * before[static_cast<std::size_t>(src)];
+        seen[static_cast<std::size_t>(i)] = 1;
+        avg[static_cast<std::size_t>(i)] += op.matrix * before[static_cast<std::size_t>(j)];
       }
     }
     for (int i = 0; i < n; ++i) {

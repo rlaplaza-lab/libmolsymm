@@ -8,15 +8,16 @@
 
 namespace molsymm::detail {
 
-int find_image(const std::vector<Atom>& atoms, int from, const Mat3& R, double tol) {
+int find_image(
+    const std::vector<Atom>& atoms, const ElementIndex& by_z, int from, const Mat3& R, double tol) {
   const Vec3 target = R * atoms[static_cast<std::size_t>(from)].position;
   const int z = atoms[static_cast<std::size_t>(from)].atomic_number;
+  if (z < 0 || static_cast<std::size_t>(z) >= by_z.size()) {
+    return -1;
+  }
   int best = -1;
   double best_d = tol + 1.0;
-  for (int j = 0; j < static_cast<int>(atoms.size()); ++j) {
-    if (atoms[static_cast<std::size_t>(j)].atomic_number != z) {
-      continue;
-    }
+  for (int j : by_z[static_cast<std::size_t>(z)]) {
     const double d = (atoms[static_cast<std::size_t>(j)].position - target).norm();
     if (d < best_d) {
       best_d = d;
@@ -26,11 +27,12 @@ int find_image(const std::vector<Atom>& atoms, int from, const Mat3& R, double t
   return best_d <= tol ? best : -1;
 }
 
-std::vector<int> permutation(const std::vector<Atom>& atoms, const Mat3& R, double tol) {
+std::vector<int>
+permutation(const std::vector<Atom>& atoms, const ElementIndex& by_z, const Mat3& R, double tol) {
   std::vector<int> image(atoms.size(), -1);
   std::vector<char> taken(atoms.size(), 0);
   for (int i = 0; i < static_cast<int>(atoms.size()); ++i) {
-    const int j = find_image(atoms, i, R, tol);
+    const int j = find_image(atoms, by_z, i, R, tol);
     if (j < 0 || taken[static_cast<std::size_t>(j)]) {
       return {};
     }
@@ -40,14 +42,19 @@ std::vector<int> permutation(const std::vector<Atom>& atoms, const Mat3& R, doub
   return image;
 }
 
-bool is_symmetry(const std::vector<Atom>& atoms, const Mat3& R, double tol) {
-  return !permutation(atoms, R, tol).empty();
+bool is_symmetry(const std::vector<Atom>& atoms,
+                 const ElementIndex& by_z,
+                 const Mat3& R,
+                 double tol) {
+  return !permutation(atoms, by_z, R, tol).empty();
 }
 
 void close_group(std::vector<Operation>& ops,
                  const std::vector<Atom>& atoms,
                  double tol,
                  int max_order) {
+  const ElementIndex by_z = build_element_index(atoms);
+
   bool has_e = false;
   for (const Operation& op : ops) {
     if (op.kind == OperationKind::Identity) {
@@ -59,13 +66,16 @@ void close_group(std::vector<Operation>& ops,
     Operation e;
     e.kind = OperationKind::Identity;
     e.matrix = Mat3::Identity();
-    e.image = permutation(atoms, e.matrix, tol);
+    e.image.resize(atoms.size());
+    for (int i = 0; i < static_cast<int>(atoms.size()); ++i) {
+      e.image[static_cast<std::size_t>(i)] = i;
+    }
     ops.push_back(e);
   }
 
   for (Operation& op : ops) {
     if (op.image.empty()) {
-      op.image = permutation(atoms, op.matrix, tol);
+      op.image = permutation(atoms, by_z, op.matrix, tol);
     }
   }
 
@@ -89,7 +99,7 @@ void close_group(std::vector<Operation>& ops,
         if (found) {
           continue;
         }
-        std::vector<int> image = permutation(atoms, M, tol);
+        std::vector<int> image = permutation(atoms, by_z, M, tol);
         if (image.empty()) {
           continue;
         }

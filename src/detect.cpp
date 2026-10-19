@@ -29,37 +29,50 @@ void add_unique_axis(std::vector<Vec3>& axes, const Vec3& a, double angle_tol) {
   axes.push_back(u);
 }
 
-Operation make_cn(const Vec3& axis, int n, int power, const std::vector<Atom>& atoms, double tol) {
+Operation make_cn(const Vec3& axis,
+                  int n,
+                  int power,
+                  const std::vector<Atom>& atoms,
+                  const detail::ElementIndex& by_z,
+                  double tol) {
   Operation op;
   op.kind = OperationKind::ProperRotation;
   op.order = n;
   op.power = power;
   op.axis = axis.normalized();
   op.matrix = detail::rotation_matrix(op.axis, 2.0 * detail::kPi * power / n);
-  op.image = detail::permutation(atoms, op.matrix, tol);
+  op.image = detail::permutation(atoms, by_z, op.matrix, tol);
   return op;
 }
 
-Operation
-make_sigma(const Vec3& normal, PlaneKind plane, const std::vector<Atom>& atoms, double tol) {
+Operation make_sigma(const Vec3& normal,
+                     PlaneKind plane,
+                     const std::vector<Atom>& atoms,
+                     const detail::ElementIndex& by_z,
+                     double tol) {
   Operation op;
   op.kind = OperationKind::Reflection;
   op.order = 1;
   op.axis = normal.normalized();
   op.plane = plane;
   op.matrix = detail::reflection_matrix(op.axis);
-  op.image = detail::permutation(atoms, op.matrix, tol);
+  op.image = detail::permutation(atoms, by_z, op.matrix, tol);
   return op;
 }
 
-Operation make_sn(const Vec3& axis, int n, int power, const std::vector<Atom>& atoms, double tol) {
+Operation make_sn(const Vec3& axis,
+                  int n,
+                  int power,
+                  const std::vector<Atom>& atoms,
+                  const detail::ElementIndex& by_z,
+                  double tol) {
   Operation op;
   op.kind = OperationKind::ImproperRotation;
   op.order = n;
   op.power = power;
   op.axis = axis.normalized();
   op.matrix = detail::improper_rotation_matrix(op.axis, 2.0 * detail::kPi * power / n);
-  op.image = detail::permutation(atoms, op.matrix, tol);
+  op.image = detail::permutation(atoms, by_z, op.matrix, tol);
   return op;
 }
 
@@ -93,14 +106,24 @@ bool atoms_collinear(const Molecule& mol, double tol) {
   return true;
 }
 
-int highest_order_on_axis(const std::vector<Atom>& atoms, const Vec3& axis, int max_n, double tol) {
+struct AxisOrder {
+  int n = 1;
+  std::vector<int> image;
+};
+
+AxisOrder highest_order_on_axis(const std::vector<Atom>& atoms,
+                                const detail::ElementIndex& by_z,
+                                const Vec3& axis,
+                                int max_n,
+                                double tol) {
   for (int n = max_n; n >= 2; --n) {
     Mat3 R = detail::rotation_matrix(axis, 2.0 * detail::kPi / n);
-    if (detail::is_symmetry(atoms, R, tol)) {
-      return n;
+    std::vector<int> image = detail::permutation(atoms, by_z, R, tol);
+    if (!image.empty()) {
+      return {n, std::move(image)};
     }
   }
-  return 1;
+  return {};
 }
 
 } // namespace
@@ -160,16 +183,15 @@ std::string classify_point_group(const std::vector<Operation>& ops,
     }
     // Dnd has σd and typically S_{2n}
     bool has_sigma_d = false;
+    bool has_s2n = false;
     for (const Operation& op : ops) {
       if (op.kind == OperationKind::Reflection) {
         has_sigma_d = true;
-        break;
-      }
-    }
-    bool has_s2n = false;
-    for (const Operation& op : ops) {
-      if (op.kind == OperationKind::ImproperRotation && op.order == 2 * highest_cn) {
+      } else if (op.kind == OperationKind::ImproperRotation && op.order == 2 * highest_cn) {
         has_s2n = true;
+      }
+      if (has_sigma_d && has_s2n) {
+        break;
       }
     }
     if (has_sigma_d || has_s2n) {
@@ -322,8 +344,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     result.order = 0;
     result.symmetry_number = 1;
     result.infinite = true;
-    result.molecule = molecule;
-    result.molecule.resolve_masses();
+    result.molecule = result.original;
     result.center_of_mass = result.molecule.atoms[0].position;
     result.molecule.atoms[0].position = Vec3::Zero();
     result.equivalence_sets = {EquivalenceSet{{0}}};
@@ -373,18 +394,23 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
 
   result.equivalence_sets = build_equivalence_sets(mol, tol.primary);
 
+  const detail::ElementIndex by_z = detail::build_element_index(mol.atoms);
+
   std::vector<Operation> ops;
   {
     Operation e;
     e.kind = OperationKind::Identity;
     e.matrix = Mat3::Identity();
-    e.image = detail::permutation(mol.atoms, e.matrix, tol.primary);
+    e.image.resize(static_cast<std::size_t>(mol.size()));
+    for (int i = 0; i < mol.size(); ++i) {
+      e.image[static_cast<std::size_t>(i)] = i;
+    }
     ops.push_back(e);
   }
 
   {
     const Mat3 inv_mat = detail::inversion_matrix();
-    std::vector<int> image = detail::permutation(mol.atoms, inv_mat, tol.primary);
+    std::vector<int> image = detail::permutation(mol.atoms, by_z, inv_mat, tol.primary);
     if (!image.empty()) {
       Operation inv;
       inv.kind = OperationKind::Inversion;
@@ -443,41 +469,53 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
         to_frame = R * to_frame;
       }
     }
-    Operation c2 = make_cn(Vec3::UnitX(), 2, 1, mol.atoms, tol.primary);
+    Operation c2 = make_cn(Vec3::UnitX(), 2, 1, mol.atoms, by_z, tol.primary);
     if (!c2.image.empty()) {
       ops.push_back(c2);
     }
-    Operation sig = make_sigma(Vec3::UnitY(), PlaneKind::Vertical, mol.atoms, tol.primary);
+    Operation sig = make_sigma(Vec3::UnitY(), PlaneKind::Vertical, mol.atoms, by_z, tol.primary);
     if (!sig.image.empty()) {
       ops.push_back(sig);
     }
-    Operation sigh = make_sigma(Vec3::UnitZ(), PlaneKind::Horizontal, mol.atoms, tol.primary);
+    Operation sigh = make_sigma(Vec3::UnitZ(), PlaneKind::Horizontal, mol.atoms, by_z, tol.primary);
     if (!sigh.image.empty()) {
       ops.push_back(sigh);
     }
   } else {
     for (const Vec3& axis : axes) {
-      const int n = highest_order_on_axis(mol.atoms, axis, tol.max_axis_order, tol.primary);
-      if (n >= 2) {
-        for (int k = 1; k < n; ++k) {
-          Operation op = make_cn(axis, n, k, mol.atoms, tol.primary);
+      const AxisOrder ao =
+          highest_order_on_axis(mol.atoms, by_z, axis, tol.max_axis_order, tol.primary);
+      if (ao.n >= 2) {
+        for (int k = 1; k < ao.n; ++k) {
+          Operation op;
+          if (k == 1) {
+            op.kind = OperationKind::ProperRotation;
+            op.order = ao.n;
+            op.power = 1;
+            op.axis = axis.normalized();
+            op.matrix = detail::rotation_matrix(op.axis, 2.0 * detail::kPi / ao.n);
+            op.image = std::move(ao.image);
+          } else {
+            op = make_cn(axis, ao.n, k, mol.atoms, by_z, tol.primary);
+          }
           if (!op.image.empty()) {
-            ops.push_back(op);
+            ops.push_back(std::move(op));
           }
         }
-        for (int sn = 2; sn <= 2 * n; sn += 2) {
-          Operation op = make_sn(axis, sn, 1, mol.atoms, tol.primary);
+        for (int sn = 4; sn <= 2 * ao.n; sn += 2) {
+          Operation op = make_sn(axis, sn, 1, mol.atoms, by_z, tol.primary);
           if (!op.image.empty()) {
             ops.push_back(op);
           }
         }
       }
-      Operation sig = make_sigma(axis, PlaneKind::None, mol.atoms, tol.primary);
+      Operation sig = make_sigma(axis, PlaneKind::None, mol.atoms, by_z, tol.primary);
       if (!sig.image.empty()) {
         ops.push_back(sig);
       }
     }
 
+    constexpr double kPairSigmaAngle = 1e-6;
     for (const EquivalenceSet& eq_set : result.equivalence_sets) {
       for (std::size_t i = 0; i < eq_set.atoms.size(); ++i) {
         for (std::size_t j = i + 1; j < eq_set.atoms.size(); ++j) {
@@ -487,7 +525,17 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
           if (nrm.norm() < tol.primary) {
             continue;
           }
-          Operation sig = make_sigma(nrm, PlaneKind::None, mol.atoms, tol.primary);
+          bool already = false;
+          for (const Vec3& ax : axes) {
+            if (detail::parallel_axis(ax, nrm, kPairSigmaAngle)) {
+              already = true;
+              break;
+            }
+          }
+          if (already) {
+            continue;
+          }
+          Operation sig = make_sigma(nrm, PlaneKind::None, mol.atoms, by_z, tol.primary);
           if (!sig.image.empty()) {
             ops.push_back(sig);
           }
@@ -507,43 +555,34 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   bool has_sigma_v = false;
   int highest_cn = 1;
   Vec3 primary_axis = Vec3::UnitZ();
-  int n_c3 = 0;
-  int n_c4 = 0;
-  int n_c5 = 0;
   std::vector<Vec3> c2_axes;
+  std::vector<Vec3> c3a;
+  std::vector<Vec3> c4a;
+  std::vector<Vec3> c5a;
 
   for (Operation& op : ops) {
     if (op.kind == OperationKind::Inversion) {
       has_inversion = true;
     }
-    if (op.kind == OperationKind::ProperRotation && op.order > highest_cn) {
-      highest_cn = op.order;
-      primary_axis = op.axis.normalized();
-    }
-    if (op.kind == OperationKind::ProperRotation && op.order == 2) {
-      add_unique_axis(c2_axes, op.axis, tol.angle);
-    }
-  }
-  std::vector<Vec3> c3a;
-  std::vector<Vec3> c4a;
-  std::vector<Vec3> c5a;
-  for (const Operation& op : ops) {
-    if (op.kind != OperationKind::ProperRotation) {
-      continue;
-    }
-    if (op.order == 3) {
-      add_unique_axis(c3a, op.axis, tol.angle);
-    }
-    if (op.order == 4) {
-      add_unique_axis(c4a, op.axis, tol.angle);
-    }
-    if (op.order == 5) {
-      add_unique_axis(c5a, op.axis, tol.angle);
+    if (op.kind == OperationKind::ProperRotation) {
+      if (op.order > highest_cn) {
+        highest_cn = op.order;
+        primary_axis = op.axis.normalized();
+      }
+      if (op.order == 2) {
+        add_unique_axis(c2_axes, op.axis, tol.angle);
+      } else if (op.order == 3) {
+        add_unique_axis(c3a, op.axis, tol.angle);
+      } else if (op.order == 4) {
+        add_unique_axis(c4a, op.axis, tol.angle);
+      } else if (op.order == 5) {
+        add_unique_axis(c5a, op.axis, tol.angle);
+      }
     }
   }
-  n_c3 = static_cast<int>(c3a.size());
-  n_c4 = static_cast<int>(c4a.size());
-  n_c5 = static_cast<int>(c5a.size());
+  const int n_c3 = static_cast<int>(c3a.size());
+  const int n_c4 = static_cast<int>(c4a.size());
+  const int n_c5 = static_cast<int>(c5a.size());
 
   int n_perp_c2 = 0;
   for (const Vec3& ax : c2_axes) {

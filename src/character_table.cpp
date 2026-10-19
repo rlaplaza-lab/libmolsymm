@@ -57,7 +57,6 @@ CharacterTable table_cn(int n) {
     ct.class_labels.push_back(os.str());
     ct.class_sizes.push_back(1);
   }
-  // A
   std::vector<double> a(n, 1.0);
   add_irrep(ct, "A", 1, a);
   if (n % 2 == 0) {
@@ -110,7 +109,6 @@ CharacterTable table_cnv(int n) {
     ct.class_sizes.push_back(n);
   }
 
-  const int nc = static_cast<int>(ct.class_labels.size());
   auto chars = [&](double e, const std::vector<double>& rot, double sigv, double sigd = 0) {
     std::vector<double> c;
     c.push_back(e);
@@ -120,9 +118,6 @@ CharacterTable table_cnv(int n) {
     c.push_back(sigv);
     if (n % 2 == 0) {
       c.push_back(sigd);
-    }
-    while (static_cast<int>(c.size()) < nc) {
-      c.push_back(0);
     }
     return c;
   };
@@ -536,6 +531,7 @@ CharacterTable
 build_character_table(const std::string& name, int n, const std::vector<Operation>& ops) {
   CharacterTable ct;
   const std::string fam = family(name);
+  const int nn = n > 0 ? n : parse_n(name);
   if (fam == "Cs") {
     ct = table_cs();
   } else if (fam == "Ci") {
@@ -564,13 +560,13 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
     add_irrep(ct, "S", 1, {1});
     return ct;
   } else if (fam == "Cnv" || fam == "Dn") {
-    ct = table_cnv(n > 0 ? n : parse_n(name));
+    ct = table_cnv(nn);
   } else if (fam == "Dnh" || fam == "Dnd") {
-    ct = double_irreps(table_cnv(n > 0 ? n : parse_n(name)), "g", "u");
+    ct = double_irreps(table_cnv(nn), "g", "u");
   } else if (fam == "Cn" || fam == "Sn") {
-    ct = table_cn(n > 0 ? n : parse_n(name));
+    ct = table_cn(nn);
   } else if (fam == "Cnh") {
-    ct = double_irreps(table_cn(n > 0 ? n : parse_n(name)), "'", "''");
+    ct = double_irreps(table_cn(nn), "'", "''");
   } else {
     ct = table_c1();
   }
@@ -587,33 +583,32 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
     return ct;
   }
 
+  std::vector<int> rep_idx(static_cast<std::size_t>(nclass), -1);
   CharacterTable indexed;
   indexed.irrep_names = ct.irrep_names;
   indexed.irrep_dims = ct.irrep_dims;
   indexed.class_labels.resize(nclass);
   indexed.class_sizes.assign(nclass, 0);
-  for (const Operation& op : ops) {
-    indexed.class_sizes[static_cast<std::size_t>(op.class_index)]++;
+  for (int i = 0; i < static_cast<int>(ops.size()); ++i) {
+    const int ic = ops[static_cast<std::size_t>(i)].class_index;
+    indexed.class_sizes[static_cast<std::size_t>(ic)]++;
+    if (rep_idx[static_cast<std::size_t>(ic)] < 0) {
+      rep_idx[static_cast<std::size_t>(ic)] = i;
+    }
   }
   indexed.characters.assign(ct.irrep_names.size(), std::vector<double>(nclass, 0.0));
 
   const std::string& f = fam;
-  const int nn = n > 0 ? n : parse_n(name);
 
   if (f == "C1" || f == "Cs" || f == "Ci" || f == "Td" || f == "Oh" || f == "T" || f == "Th" ||
       f == "O" || f == "I" || f == "Ih") {
     for (int ic = 0; ic < nclass; ++ic) {
-      const Operation* rep = nullptr;
-      for (const Operation& op : ops) {
-        if (op.class_index == ic) {
-          rep = &op;
-          break;
-        }
-      }
-      if (!rep) {
+      const int ri = rep_idx[static_cast<std::size_t>(ic)];
+      if (ri < 0) {
         throw Error("empty conjugacy class in " + fam);
       }
-      const int abstract = abstract_class_index(f, *rep, ops);
+      const Operation& rep = ops[static_cast<std::size_t>(ri)];
+      const int abstract = abstract_class_index(f, rep, ops);
       if (abstract < 0 || abstract >= static_cast<int>(ct.class_labels.size())) {
         throw Error("abstract class out of range for " + fam);
       }
@@ -641,11 +636,17 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
     return iname;
   };
 
-  // Axial: characters from Mulliken formulas per operation
+  // Axial: Mulliken characters from one representative per class
   for (std::size_t ir = 0; ir < indexed.irrep_names.size(); ++ir) {
     bool odd_parity = false;
     const std::string base = strip_parity(indexed.irrep_names[ir], odd_parity);
-    for (const Operation& op : ops) {
+    for (int ic = 0; ic < nclass; ++ic) {
+      const int ri = rep_idx[static_cast<std::size_t>(ic)];
+      if (ri < 0) {
+        continue;
+      }
+      const Operation& op = ops[static_cast<std::size_t>(ri)];
+      const int p = rotation_power(op);
       double chi = 0.0;
       if (op.kind == OperationKind::Identity) {
         chi = indexed.irrep_dims[ir];
@@ -662,7 +663,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
           }
         } else if (base == "B1") {
           if (op.kind == OperationKind::ProperRotation) {
-            chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
+            chi = (p * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
           } else if (op.kind == OperationKind::Reflection) {
             chi = (op.plane == PlaneKind::Vertical) ? 1.0 : -1.0;
           } else {
@@ -670,7 +671,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
           }
         } else if (base == "B2") {
           if (op.kind == OperationKind::ProperRotation) {
-            chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
+            chi = (p * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
           } else if (op.kind == OperationKind::Reflection) {
             chi = (op.plane == PlaneKind::Vertical) ? -1.0 : 1.0;
           } else {
@@ -683,7 +684,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
             j = std::stoi(base.substr(pos + 1));
           }
           if (op.kind == OperationKind::ProperRotation && op.order >= 2) {
-            chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
+            chi = 2.0 * std::cos(2.0 * kPi * j * p / op.order);
           } else {
             chi = 0.0;
           }
@@ -692,7 +693,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
         if (base == "A") {
           chi = 1.0;
         } else if (base == "B") {
-          chi = (op.kind == OperationKind::ProperRotation && (op.power % 2)) ? -1.0 : 1.0;
+          chi = (op.kind == OperationKind::ProperRotation && (p % 2)) ? -1.0 : 1.0;
         } else if (!base.empty() && base[0] == 'E') {
           int j = 1;
           auto pos = base.find('_');
@@ -700,7 +701,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
             j = std::stoi(base.substr(pos + 1));
           }
           if (op.kind == OperationKind::ProperRotation) {
-            chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
+            chi = 2.0 * std::cos(2.0 * kPi * j * p / op.order);
           } else {
             chi = 0.0;
           }
@@ -712,34 +713,34 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
       if (odd_parity && improper) {
         chi = -chi;
       }
-      indexed.characters[ir][static_cast<std::size_t>(op.class_index)] = chi;
+      indexed.characters[ir][static_cast<std::size_t>(ic)] = chi;
     }
   }
   for (int ic = 0; ic < nclass; ++ic) {
-    for (const Operation& op : ops) {
-      if (op.class_index == ic) {
-        std::ostringstream os;
-        switch (op.kind) {
-        case OperationKind::Identity:
-          os << "E";
-          break;
-        case OperationKind::Inversion:
-          os << "i";
-          break;
-        case OperationKind::ProperRotation:
-          os << "C" << op.order;
-          break;
-        case OperationKind::ImproperRotation:
-          os << "S" << op.order;
-          break;
-        case OperationKind::Reflection:
-          os << "σ";
-          break;
-        }
-        indexed.class_labels[static_cast<std::size_t>(ic)] = os.str();
-        break;
-      }
+    const int ri = rep_idx[static_cast<std::size_t>(ic)];
+    if (ri < 0) {
+      continue;
     }
+    const Operation& op = ops[static_cast<std::size_t>(ri)];
+    std::ostringstream os;
+    switch (op.kind) {
+    case OperationKind::Identity:
+      os << "E";
+      break;
+    case OperationKind::Inversion:
+      os << "i";
+      break;
+    case OperationKind::ProperRotation:
+      os << "C" << op.order;
+      break;
+    case OperationKind::ImproperRotation:
+      os << "S" << op.order;
+      break;
+    case OperationKind::Reflection:
+      os << "σ";
+      break;
+    }
+    indexed.class_labels[static_cast<std::size_t>(ic)] = os.str();
   }
   return indexed;
 }

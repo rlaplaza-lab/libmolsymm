@@ -3,6 +3,7 @@
 #include "molsymm/molecule.hpp"
 #include "molsymm/types.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <string>
@@ -87,11 +88,33 @@ inline void dedupe_operations(std::vector<Operation>& ops, double tol) {
   ops.swap(uniq);
 }
 
-int find_image(const std::vector<Atom>& atoms, int from, const Mat3& R, double tol);
+using ElementIndex = std::vector<std::vector<int>>;
 
-std::vector<int> permutation(const std::vector<Atom>& atoms, const Mat3& R, double tol);
+inline ElementIndex build_element_index(const std::vector<Atom>& atoms) {
+  int max_z = 0;
+  for (const Atom& a : atoms) {
+    max_z = std::max(max_z, a.atomic_number);
+  }
+  ElementIndex idx(static_cast<std::size_t>(std::max(max_z, 0)) + 1);
+  for (int i = 0; i < static_cast<int>(atoms.size()); ++i) {
+    const int z = atoms[static_cast<std::size_t>(i)].atomic_number;
+    if (z >= 0) {
+      idx[static_cast<std::size_t>(z)].push_back(i);
+    }
+  }
+  return idx;
+}
 
-bool is_symmetry(const std::vector<Atom>& atoms, const Mat3& R, double tol);
+int find_image(
+    const std::vector<Atom>& atoms, const ElementIndex& by_z, int from, const Mat3& R, double tol);
+
+std::vector<int>
+permutation(const std::vector<Atom>& atoms, const ElementIndex& by_z, const Mat3& R, double tol);
+
+bool is_symmetry(const std::vector<Atom>& atoms,
+                 const ElementIndex& by_z,
+                 const Mat3& R,
+                 double tol);
 
 CharacterTable
 build_character_table(const std::string& name, int n, const std::vector<Operation>& ops);
