@@ -7,7 +7,7 @@ requires = [
 build-backend = "scikit_build_core.build"
 
 [project]
-name = "molsymm"
+name = "libmolsymm"
 version = "1.0.0"
 description = "Molecular point-group symmetry detection and symmetrization"
 readme = "README.md"
@@ -52,7 +52,7 @@ MOLSYMM_BUILD_SHARED = "OFF"
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-*"
-skip = "pp* *-musllinux_*"
+skip = "*-musllinux_*"
 test-requires = ["pytest", "numpy"]
 test-command = "python -m pytest {project}/tests/test_python.py -q"
 test-extras = []

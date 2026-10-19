@@ -54,7 +54,7 @@ auto disp = molsymm::unique_displacements(a, 1e-3);
 ## Python
 
 ```bash
-pip install molsymm
+pip install libmolsymm
 ```
 
 ```python
