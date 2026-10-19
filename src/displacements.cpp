@@ -46,9 +46,9 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
   if (pos.norm() > 1e-8) {
     candidates.push_back(pos.normalized());
   }
-  candidates.push_back(Vec3::UnitX());
-  candidates.push_back(Vec3::UnitY());
-  candidates.push_back(Vec3::UnitZ());
+  candidates.emplace_back(Vec3::UnitX());
+  candidates.emplace_back(Vec3::UnitY());
+  candidates.emplace_back(Vec3::UnitZ());
   if (pos.norm() > 1e-8) {
     Vec3 radial = pos.normalized();
     for (int c = 0; c < 3; ++c) {
@@ -223,12 +223,9 @@ rotate_pattern(const Analysis& analysis, const Operation& op, const Eigen::Vecto
 }
 
 bool pattern_seen(const Eigen::VectorXd& e, const std::vector<Eigen::VectorXd>& seen) {
-  for (const Eigen::VectorXd& s : seen) {
-    if ((e - s).norm() < 1e-6 || (e + s).norm() < 1e-6) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(seen.begin(), seen.end(), [&](const Eigen::VectorXd& s) {
+    return (e - s).norm() < 1e-6 || (e + s).norm() < 1e-6;
+  });
 }
 
 } // namespace
@@ -253,8 +250,9 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
       const Vec3 pi = analysis.molecule.atoms[static_cast<std::size_t>(i)].position;
       for (int j = 0; j < n; ++j) {
         if (analysis.molecule.atoms[static_cast<std::size_t>(j)].atomic_number !=
-            analysis.molecule.atoms[static_cast<std::size_t>(i)].atomic_number)
+            analysis.molecule.atoms[static_cast<std::size_t>(i)].atomic_number) {
           continue;
+        }
         const Vec3 pj = analysis.molecule.atoms[static_cast<std::size_t>(j)].position;
         if (std::abs(std::abs(pj.z()) - std::abs(pi.z())) < 1e-6) {
           seen[static_cast<std::size_t>(j)] = 1;
@@ -413,7 +411,7 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
         continue;
       }
       e_cols.push_back(e_img);
-      c_cols.push_back(rotate_pattern(analysis, op, col) / nrm);
+      c_cols.emplace_back(rotate_pattern(analysis, op, col) / nrm);
     }
   }
 
@@ -432,10 +430,11 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
   }
 
   Eigen::MatrixXd H = Eigen::MatrixXd::Zero(n3, n3);
-  for (int i = 0; i < n; ++i)
+  for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
       H.block<3, 3>(3 * i, 3 * j) = Rinv * H_f.block<3, 3>(3 * i, 3 * j) * R;
     }
+  }
   return H;
 }
 
@@ -490,10 +489,11 @@ Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::Matrix
   const Mat3 R = analysis.orientation;
   const Mat3 Rinv = R.transpose();
   Eigen::MatrixXd H_f = Eigen::MatrixXd::Zero(n3, n3);
-  for (int i = 0; i < n; ++i)
+  for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
       H_f.block<3, 3>(3 * i, 3 * j) = R * hessian.block<3, 3>(3 * i, 3 * j) * Rinv;
     }
+  }
 
   Eigen::MatrixXd avg = Eigen::MatrixXd::Zero(n3, n3);
   int nop = 0;
@@ -515,10 +515,11 @@ Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::Matrix
     avg /= static_cast<double>(nop);
   }
   Eigen::MatrixXd out = Eigen::MatrixXd::Zero(n3, n3);
-  for (int i = 0; i < n; ++i)
+  for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
       out.block<3, 3>(3 * i, 3 * j) = Rinv * avg.block<3, 3>(3 * i, 3 * j) * R;
     }
+  }
   return out;
 }
 

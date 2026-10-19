@@ -129,10 +129,11 @@ int molsymm_operation_matrix(const molsymm_analysis* a, int index, double* mat9)
       throw molsymm::Error("operation index out of range");
     }
     const auto& M = a->a.operations[static_cast<std::size_t>(index)].matrix;
-    for (int r = 0; r < 3; ++r)
+    for (int r = 0; r < 3; ++r) {
       for (int c = 0; c < 3; ++c) {
         mat9[3 * r + c] = M(r, c);
       }
+    }
   });
 }
 
@@ -335,7 +336,8 @@ int molsymm_hessian_from_gradients(const molsymm_displacements* d,
     }
     const int nu = static_cast<int>(d->set.displacements.size());
     const int n3 = 3 * d->set.analysis.original.size();
-    std::vector<Eigen::VectorXd> gp(nu), gm(nu);
+    std::vector<Eigen::VectorXd> gp(nu);
+    std::vector<Eigen::VectorXd> gm(nu);
     for (int u = 0; u < nu; ++u) {
       gp[static_cast<std::size_t>(u)] = Eigen::VectorXd::Zero(n3);
       gm[static_cast<std::size_t>(u)] = Eigen::VectorXd::Zero(n3);
@@ -345,10 +347,11 @@ int molsymm_hessian_from_gradients(const molsymm_displacements* d,
       }
     }
     Eigen::MatrixXd H = d->set.hessian_from_gradients(gp, gm);
-    for (int r = 0; r < n3; ++r)
+    for (int r = 0; r < n3; ++r) {
       for (int c = 0; c < n3; ++c) {
         hess_out[r * n3 + c] = H(r, c);
       }
+    }
   });
 }
 

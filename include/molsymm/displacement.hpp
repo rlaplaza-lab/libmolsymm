@@ -18,17 +18,17 @@ struct DisplacementImage {
 struct UniqueDisplacement {
   int atom = 0;
   Vec3 direction = Vec3::UnitZ();
-  std::vector<DisplacementImage> images{};
-  std::vector<std::string> irreps{};
-  std::string preserved_subgroup{};
+  std::vector<DisplacementImage> images;
+  std::vector<std::string> irreps;
+  std::string preserved_subgroup;
 };
 
 struct DisplacementSet {
   double step = 1e-3;
-  Analysis analysis{};
-  std::vector<UniqueDisplacement> displacements{};
-  std::vector<Molecule> plus{};  // original input frame
-  std::vector<Molecule> minus{}; // original input frame
+  Analysis analysis;
+  std::vector<UniqueDisplacement> displacements;
+  std::vector<Molecule> plus;  // original input frame
+  std::vector<Molecule> minus; // original input frame
 
   /// Central-difference Cartesian gradient from energies on ± geometries.
   [[nodiscard]] Eigen::VectorXd gradient_from_energies(std::span<const double> e_plus,

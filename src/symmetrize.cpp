@@ -39,8 +39,9 @@ double Analysis::symmetrize() {
         double best = 1e9;
         for (int j = 0; j < n; ++j) {
           if (molecule.atoms[static_cast<std::size_t>(j)].atomic_number !=
-              molecule.atoms[static_cast<std::size_t>(i)].atomic_number)
+              molecule.atoms[static_cast<std::size_t>(i)].atomic_number) {
             continue;
+          }
           const double d = (molecule.atoms[static_cast<std::size_t>(j)].position + pi).norm();
           if (d < best) {
             best = d;

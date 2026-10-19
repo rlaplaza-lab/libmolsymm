@@ -43,7 +43,7 @@ CharacterTable table_ci() {
 
 CharacterTable table_cn(int n) {
   CharacterTable ct;
-  ct.class_labels.push_back("E");
+  ct.class_labels.emplace_back("E");
   ct.class_sizes.push_back(1);
   for (int k = 1; k < n; ++k) {
     std::ostringstream os;
@@ -84,7 +84,7 @@ CharacterTable table_cn(int n) {
 CharacterTable table_cnv(int n) {
   CharacterTable ct;
   // Classes: E, C_n^k (paired), σv (and σd if even)
-  ct.class_labels.push_back("E");
+  ct.class_labels.emplace_back("E");
   ct.class_sizes.push_back(1);
   for (int k = 1; k <= (n - 1) / 2; ++k) {
     std::ostringstream os;
@@ -102,12 +102,12 @@ CharacterTable table_cnv(int n) {
     ct.class_sizes.push_back(1);
   }
   if (n % 2 == 0) {
-    ct.class_labels.push_back("nσv");
+    ct.class_labels.emplace_back("nσv");
     ct.class_sizes.push_back(n / 2);
-    ct.class_labels.push_back("nσd");
+    ct.class_labels.emplace_back("nσd");
     ct.class_sizes.push_back(n / 2);
   } else {
-    ct.class_labels.push_back("nσv");
+    ct.class_labels.emplace_back("nσv");
     ct.class_sizes.push_back(n);
   }
 
@@ -145,7 +145,7 @@ CharacterTable table_cnv(int n) {
       } else if (j == 0) {
         r.push_back(1.0);
       } else {
-        r.push_back(2.0 * std::cos(2.0 * kPi * j * (n / 2) / n));
+        r.push_back(2.0 * std::cos(2.0 * kPi * j * (0.5 * n) / n));
       }
     }
     return r;
@@ -316,8 +316,9 @@ int parse_n(const std::string& name) {
 std::string family(const std::string& name) {
   if (name == "C1" || name == "Cs" || name == "Ci" || name == "Cinfv" || name == "Dinfh" ||
       name == "Kh" || name == "T" || name == "Td" || name == "Th" || name == "O" || name == "Oh" ||
-      name == "I" || name == "Ih")
+      name == "I" || name == "Ih") {
     return name;
+  }
   if (name.size() >= 2 && name[0] == 'S') {
     return "Sn";
   }
@@ -348,9 +349,7 @@ CharacterTable
 build_character_table(const std::string& name, int n, const std::vector<Operation>& ops) {
   CharacterTable ct;
   const std::string fam = family(name);
-  if (fam == "C1") {
-    ct = table_c1();
-  } else if (fam == "Cs") {
+  if (fam == "Cs") {
     ct = table_cs();
   } else if (fam == "Ci") {
     ct = table_ci();
@@ -376,25 +375,13 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
     ct.class_labels = {"E"};
     ct.class_sizes = {1};
     add_irrep(ct, "S", 1, {1});
-  } else if (fam == "Cnv")
+  } else if (fam == "Cnv" || fam == "Dn" || fam == "Dnh" || fam == "Dnd") {
+    // Use Cnv abelianization for axial groups; χ(g) filled per operation below.
     ct = table_cnv(n > 0 ? n : parse_n(name));
-  else if (fam == "Dn" || fam == "Dnh" || fam == "Dnd") {
-    // Use Cnv isomorphic abelianization for axial; refine for h/d with parity
-    ct = table_cnv(n > 0 ? n : parse_n(name));
-    if (fam == "Dnh") {
-      // Double by g/u roughly: keep as-is for projector use via real ops; rename A1→A1g etc.
-      // Full Dnh table:
-      const int nn = n > 0 ? n : parse_n(name);
-      CharacterTable full;
-      // Build from known structure of Dnh
-      full = table_cnv(nn);
-      // For finite-difference projectors we need χ(g) for each operation.
-      // Assign by evaluating formula per operation below.
-      ct = full;
-    }
   } else if (fam == "Cn" || fam == "Cnh" || fam == "Sn") {
     ct = table_cn(n > 0 ? n : parse_n(name));
   } else {
+    // C1 and unknown groups
     ct = table_c1();
   }
 
@@ -421,7 +408,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
       // Fill by matching each operation to the nearest abstract class via character of
       // the defining representation (3D orthogonal matrix trace & det).
       // For axial groups, assign using order and plane kind.
-      const std::string f = fam;
+      const std::string& f = fam;
       const int nn = n > 0 ? n : parse_n(name);
 
       if (f == "C1" || f == "Cs" || f == "Ci" || f == "Td" || f == "Oh" || f == "T" || f == "Th" ||
@@ -459,9 +446,9 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
               abstract = 1;
             } else if (rep->kind == OperationKind::ProperRotation && rep->order == 2 &&
                        std::abs(rep->axis.normalized().dot(Vec3::UnitZ())) < 0.5 &&
-                       std::abs(rep->axis.normalized().dot(Vec3::UnitX())) < 0.5)
+                       std::abs(rep->axis.normalized().dot(Vec3::UnitX())) < 0.5) {
               abstract = 2; // C2 along face diagonal-ish — approximate
-            else if (rep->kind == OperationKind::ProperRotation && rep->order == 4) {
+            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 4) {
               abstract = 3;
             } else if (rep->kind == OperationKind::ProperRotation && rep->order == 2) {
               abstract = 4;
@@ -509,9 +496,9 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
             } else if (iname == "A2" || iname == "A2g") {
               if (op.kind == OperationKind::Reflection ||
                   (op.kind == OperationKind::ProperRotation && op.order == 2 &&
-                   std::abs(op.axis.z()) < 0.5))
+                   std::abs(op.axis.z()) < 0.5)) {
                 chi = -1.0;
-              else {
+              } else {
                 chi = 1.0;
               }
             } else if (iname == "B1" || iname == "B1g") {
@@ -534,7 +521,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
               int j = 1;
               auto pos = iname.find('_');
               if (pos != std::string::npos) {
-                j = std::atoi(iname.c_str() + pos + 1);
+                j = std::stoi(iname.substr(pos + 1));
               }
               if (op.kind == OperationKind::ProperRotation && op.order >= 2) {
                 chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
@@ -558,7 +545,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
               int j = 1;
               auto pos = iname.find('_');
               if (pos != std::string::npos) {
-                j = std::atoi(iname.c_str() + pos + 1);
+                j = std::stoi(iname.substr(pos + 1));
               }
               if (op.kind == OperationKind::ProperRotation) {
                 chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);

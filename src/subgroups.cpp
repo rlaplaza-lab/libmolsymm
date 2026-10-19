@@ -4,6 +4,7 @@
 #include "molsymm/error.hpp"
 
 #include <algorithm>
+#include <utility>
 
 namespace molsymm::detail {
 
@@ -69,8 +70,9 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
   }
   if (name == "Oh") {
     for (auto g : {"C2",  "C3",  "C4", "Ci",  "Cs", "C2v", "C2h", "C3v", "C4v", "C4h", "D2",
-                   "D2h", "D2d", "D3", "D3d", "D4", "D4h", "Td",  "Th",  "T",   "O",   "Oh"})
+                   "D2h", "D2d", "D3", "D3d", "D4", "D4h", "Td",  "Th",  "T",   "O",   "Oh"}) {
       add(g);
+    }
     return s;
   }
   if (name == "I" || name == "Ih") {
@@ -232,23 +234,27 @@ void Analysis::select_subgroup(const std::string& name) {
         }
       }
       if (name.back() == 'v' && op.kind == OperationKind::Reflection &&
-          op.plane == PlaneKind::Vertical)
+          op.plane == PlaneKind::Vertical) {
         kept.push_back(op);
+      }
       if (name.back() == 'h' &&
           ((op.kind == OperationKind::Reflection && op.plane == PlaneKind::Horizontal) ||
-           op.kind == OperationKind::Inversion))
+           op.kind == OperationKind::Inversion)) {
         kept.push_back(op);
+      }
     }
     if (!name.empty() && name[0] == 'D') {
       if (op.kind == OperationKind::ProperRotation) {
         kept.push_back(op);
       }
       if (name.back() == 'h' &&
-          (op.kind == OperationKind::Reflection || op.kind == OperationKind::Inversion))
+          (op.kind == OperationKind::Reflection || op.kind == OperationKind::Inversion)) {
         kept.push_back(op);
+      }
       if (name.back() == 'd' &&
-          (op.kind == OperationKind::Reflection || op.kind == OperationKind::ImproperRotation))
+          (op.kind == OperationKind::Reflection || op.kind == OperationKind::ImproperRotation)) {
         kept.push_back(op);
+      }
     }
   }
   // Deduplicate
@@ -265,7 +271,7 @@ void Analysis::select_subgroup(const std::string& name) {
       uniq.push_back(op);
     }
   }
-  operations = uniq;
+  operations = std::move(uniq);
   order = infinite ? 0 : static_cast<int>(operations.size());
   detail::assign_conjugacy_classes(operations, 1e-6);
   character_table = detail::build_character_table(point_group, n, operations);

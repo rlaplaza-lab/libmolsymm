@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Eigen/Dense>
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -9,9 +10,15 @@ namespace molsymm {
 using Vec3 = Eigen::Vector3d;
 using Mat3 = Eigen::Matrix3d;
 
-enum class OperationKind { Identity, Inversion, ProperRotation, ImproperRotation, Reflection };
+enum class OperationKind : std::uint8_t {
+  Identity,
+  Inversion,
+  ProperRotation,
+  ImproperRotation,
+  Reflection
+};
 
-enum class PlaneKind { None, Horizontal, Vertical, Dihedral };
+enum class PlaneKind : std::uint8_t { None, Horizontal, Vertical, Dihedral };
 
 struct Atom {
   int atomic_number = 0;
@@ -34,21 +41,21 @@ struct Operation {
   Vec3 axis = Vec3::UnitZ();
   PlaneKind plane = PlaneKind::None;
   Mat3 matrix = Mat3::Identity();
-  std::vector<int> image{}; // atom permutation: image[i] = j means g maps atom i → j
+  std::vector<int> image; // atom permutation: image[i] = j means g maps atom i → j
   int class_index = 0;
 };
 
 struct CharacterTable {
-  std::vector<std::string> irrep_names{};
-  std::vector<int> irrep_dims{};
-  std::vector<std::string> class_labels{};
-  std::vector<int> class_sizes{};
+  std::vector<std::string> irrep_names;
+  std::vector<int> irrep_dims;
+  std::vector<std::string> class_labels;
+  std::vector<int> class_sizes;
   /// characters[irrep][class]
-  std::vector<std::vector<double>> characters{};
+  std::vector<std::vector<double>> characters;
 };
 
 struct EquivalenceSet {
-  std::vector<int> atoms{};
+  std::vector<int> atoms;
 };
 
 } // namespace molsymm

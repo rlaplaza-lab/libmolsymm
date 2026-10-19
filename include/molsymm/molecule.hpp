@@ -8,7 +8,7 @@
 namespace molsymm {
 
 struct Molecule {
-  std::vector<Atom> atoms{};
+  std::vector<Atom> atoms;
 
   Molecule() = default;
   Molecule(std::span<const int> atomic_numbers, std::span<const double> xyz_flat);

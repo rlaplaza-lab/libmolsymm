@@ -56,7 +56,7 @@ molsymm::Molecule load_xyz(const std::string& path) {
   std::vector<int> z;
   std::vector<double> xyz;
   z.reserve(static_cast<std::size_t>(nat));
-  xyz.reserve(static_cast<std::size_t>(3 * nat));
+  xyz.reserve(static_cast<std::size_t>(nat) * 3);
   for (int i = 0; i < nat; ++i) {
     if (!std::getline(in, line)) {
       throw std::runtime_error("truncated XYZ in " + path);
@@ -190,7 +190,7 @@ molsymm::Molecule co() {
 }
 
 void test_point_groups() {
-  auto check = [](molsymm::Molecule mol, const std::string& expect_pg, int sigma) {
+  auto check = [](const molsymm::Molecule& mol, const std::string& expect_pg, int sigma) {
     auto a = molsymm::analyze(mol);
     expect(a.point_group == expect_pg, "group " + expect_pg + " got " + a.point_group);
     expect(a.symmetry_number == sigma,

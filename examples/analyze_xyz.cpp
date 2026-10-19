@@ -40,7 +40,9 @@ int main(int argc, char** argv) {
     std::getline(in, line);
     std::istringstream ss(line);
     std::string sym;
-    double x, y, zz;
+    double x;
+    double y;
+    double zz;
     ss >> sym >> x >> y >> zz;
     z.push_back(atomic_number_from_symbol(sym));
     xyz.push_back(x);

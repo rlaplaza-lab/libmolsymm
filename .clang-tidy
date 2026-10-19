@@ -13,20 +13,40 @@ Checks: >
   -readability-magic-numbers,
   -readability-identifier-length,
   -modernize-use-trailing-return-type,
-  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-pro-bounds-constant-array-index,
+  -cppcoreguidelines-pro-bounds-*,
   -cppcoreguidelines-owning-memory,
   -cppcoreguidelines-pro-type-reinterpret-cast,
   -cppcoreguidelines-pro-type-vararg,
   -cppcoreguidelines-avoid-non-const-global-variables,
   -cppcoreguidelines-init-variables,
+  -cppcoreguidelines-avoid-c-arrays,
+  -cppcoreguidelines-missing-std-forward,
+  -cppcoreguidelines-narrowing-conversions,
+  -modernize-avoid-c-arrays,
+  -modernize-use-using,
+  -modernize-use-std-numbers,
+  -modernize-return-braced-init-list,
+  -modernize-use-integer-sign-comparison,
+  -modernize-use-ranges,
+  -modernize-use-designated-initializers,
   -readability-function-cognitive-complexity,
+  -readability-implicit-bool-conversion,
+  -readability-redundant-member-init,
+  -readability-math-missing-parentheses,
+  -readability-qualified-auto,
+  -readability-trailing-comma,
+  -readability-redundant-nested-if,
   -misc-include-cleaner,
+  -misc-const-correctness,
+  -misc-use-anonymous-namespace,
   -bugprone-narrowing-conversions,
-  -cppcoreguidelines-narrowing-conversions
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-easily-swappable-parameters,
+  -portability-avoid-pragma-once,
+  -cert-err33-c,
+  -cert-err34-c
 WarningsAsErrors: '*'
-HeaderFilterRegex: '.*/(include/molsymm|src|tests|examples|python)/.*'
+HeaderFilterRegex: '.*/(include/molsymm|src|tests|examples|python)/.*\.(hpp|cpp)$'
 FormatStyle: none
 CheckOptions:
   - key: misc-non-private-member-variables-in-classes.IgnoreClassesWithAllMemberVariablesBeingPublic

@@ -9,6 +9,7 @@
 #include <cmath>
 #include <numeric>
 #include <sstream>
+#include <utility>
 
 namespace molsymm {
 namespace {
@@ -286,7 +287,6 @@ void align_to_frame(Molecule& mol,
       Vec3 proj = a.position - a.position.dot(primary) * primary;
       if (proj.norm() > tol.primary) {
         secondary = proj.normalized();
-        found = true;
         break;
       }
     }
@@ -545,7 +545,9 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   bool has_sigma_v = false;
   int highest_cn = 1;
   Vec3 primary_axis = Vec3::UnitZ();
-  int n_c3 = 0, n_c4 = 0, n_c5 = 0;
+  int n_c3 = 0;
+  int n_c4 = 0;
+  int n_c5 = 0;
   std::vector<Vec3> c2_axes;
   std::vector<Vec3> cn_axes;
 
@@ -572,7 +574,9 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   }
   // Count unique high-order axes
-  std::vector<Vec3> c3a, c4a, c5a;
+  std::vector<Vec3> c3a;
+  std::vector<Vec3> c4a;
+  std::vector<Vec3> c5a;
   for (const Operation& op : ops) {
     if (op.kind != OperationKind::ProperRotation) {
       continue;
@@ -650,11 +654,11 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     detail::align_to_frame(mol, ops, extra, tol);
   }
   result.orientation = extra * to_frame;
-  result.molecule = mol;
-  result.operations = ops;
+  result.molecule = std::move(mol);
+  result.operations = std::move(ops);
   result.infinite =
       result.point_group == "Cinfv" || result.point_group == "Dinfh" || result.point_group == "Kh";
-  result.order = result.infinite ? 0 : static_cast<int>(ops.size());
+  result.order = result.infinite ? 0 : static_cast<int>(result.operations.size());
   result.symmetry_number = detail::symmetry_number_for(result.point_group, n_group);
 
   if (!result.infinite) {
