@@ -52,10 +52,14 @@ MOLSYMM_BUILD_SHARED = "OFF"
 
 [tool.cibuildwheel]
 build = "cp311-* cp312-* cp313-*"
-skip = "*-musllinux_*"
+skip = "*-musllinux_* *-win32 *i686*"
 test-requires = ["pytest", "numpy"]
 test-command = "python -m pytest {project}/tests/test_python.py -q"
 test-extras = []
+
+# aarch64 via QEMU on the Ubuntu runner; macOS/Windows use native runner archs.
+[tool.cibuildwheel.linux]
+archs = ["x86_64", "aarch64"]
 
 [tool.ruff]
 target-version = "py311"
