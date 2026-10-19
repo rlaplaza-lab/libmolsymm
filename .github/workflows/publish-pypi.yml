@@ -82,7 +82,6 @@ jobs:
           - ubuntu-24.04
           - ubuntu-24.04-arm
           - windows-2022
-          - macos-13
           - macos-14
     runs-on: ${{ matrix.os }}
     steps:

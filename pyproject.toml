@@ -57,9 +57,13 @@ test-requires = ["pytest", "numpy"]
 test-command = "python -m pytest {project}/tests/test_python.py -q"
 test-extras = []
 
-# Native arch per runner (ubuntu-24.04 + ubuntu-24.04-arm); avoid QEMU.
+# Native arch per Linux runner (ubuntu-24.04 + ubuntu-24.04-arm).
 [tool.cibuildwheel.linux]
 archs = ["auto"]
+
+# Intel + Apple Silicon; x86_64 is cross-built on macos-14 (see workflow env).
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
 
 [tool.ruff]
 target-version = "py311"
