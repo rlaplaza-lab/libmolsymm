@@ -26,6 +26,11 @@ struct Analysis {
   std::vector<std::string> subgroups;
   double rmsd = 0.0; // after symmetrization of the analysis geometry
 
+  /// Map a point from the analysis frame back to the original input coordinates.
+  [[nodiscard]] Vec3 frame_to_input(const Vec3& p) const {
+    return orientation.transpose() * p + center_of_mass;
+  }
+
   /// Restrict operations and rebuild the character table for a named subgroup.
   void select_subgroup(const std::string& name);
 

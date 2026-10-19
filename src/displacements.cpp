@@ -44,13 +44,11 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
 
   std::vector<Vec3> candidates;
   if (pos.norm() > 1e-8) {
-    candidates.push_back(pos.normalized());
-  }
-  candidates.emplace_back(Vec3::UnitX());
-  candidates.emplace_back(Vec3::UnitY());
-  candidates.emplace_back(Vec3::UnitZ());
-  if (pos.norm() > 1e-8) {
-    Vec3 radial = pos.normalized();
+    const Vec3 radial = pos.normalized();
+    candidates.push_back(radial);
+    candidates.emplace_back(Vec3::UnitX());
+    candidates.emplace_back(Vec3::UnitY());
+    candidates.emplace_back(Vec3::UnitZ());
     for (int c = 0; c < 3; ++c) {
       Vec3 axis = Vec3::Zero();
       axis(c) = 1.0;
@@ -59,24 +57,33 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
         candidates.push_back(perp.normalized());
       }
     }
+  } else {
+    candidates.emplace_back(Vec3::UnitX());
+    candidates.emplace_back(Vec3::UnitY());
+    candidates.emplace_back(Vec3::UnitZ());
   }
 
-  auto in_span = [](const Vec3& v, const std::vector<Vec3>& basis) {
-    Vec3 r = v;
+  auto residual = [](Vec3 v, const std::vector<Vec3>& basis) {
     for (const Vec3& b : basis) {
-      r -= b.dot(r) * b;
+      v -= b.dot(v) * b;
     }
-    return r.norm() < 1e-8;
+    return v;
+  };
+  auto append_ortho = [&](std::vector<Vec3>& basis, const Vec3& v) {
+    const Vec3 r = residual(v, basis);
+    if (r.norm() > 1e-8) {
+      basis.push_back(r.normalized());
+    }
   };
 
-  std::vector<Vec3> used_basis; // orthonormal basis of covered subspaces
+  std::vector<Vec3> used_basis;
   std::vector<Vec3> unique;
   for (Vec3 cand : candidates) {
     if (cand.norm() < 1e-10) {
       continue;
     }
     cand.normalize();
-    if (in_span(cand, used_basis)) {
+    if (residual(cand, used_basis).norm() < 1e-8) {
       continue;
     }
 
@@ -88,13 +95,7 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
         continue;
       }
       v.normalize();
-      Vec3 r = v;
-      for (const Vec3& b : subspace) {
-        r -= b.dot(r) * b;
-      }
-      if (r.norm() > 1e-8) {
-        subspace.push_back(r.normalized());
-      }
+      append_ortho(subspace, v);
     }
     if (subspace.empty()) {
       subspace.push_back(cand);
@@ -104,13 +105,7 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
     canonicalize(rep);
     unique.push_back(rep);
     for (const Vec3& b : subspace) {
-      Vec3 r = b;
-      for (const Vec3& u : used_basis) {
-        r -= u.dot(r) * u;
-      }
-      if (r.norm() > 1e-8) {
-        used_basis.push_back(r.normalized());
-      }
+      append_ortho(used_basis, b);
     }
     if (used_basis.size() >= 3) {
       break;
@@ -200,10 +195,9 @@ std::vector<std::string> project_irreps(const Analysis& analysis, int atom, cons
 
 Molecule to_original_frame(const Analysis& analysis, const Molecule& frame_mol) {
   Molecule out = analysis.original;
-  const Mat3 Rinv = analysis.orientation.transpose();
   for (int i = 0; i < out.size(); ++i) {
     out.atoms[static_cast<std::size_t>(i)].position =
-        Rinv * frame_mol.atoms[static_cast<std::size_t>(i)].position + analysis.center_of_mass;
+        analysis.frame_to_input(frame_mol.atoms[static_cast<std::size_t>(i)].position);
   }
   return out;
 }
@@ -237,6 +231,19 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
   }
 
   const int n = analysis.molecule.size();
+  auto fill_images = [&](UniqueDisplacement& ud, int atom) {
+    for (std::size_t oi = 0; oi < analysis.operations.size(); ++oi) {
+      const Operation& op = analysis.operations[oi];
+      if (static_cast<int>(op.image.size()) != n) {
+        continue;
+      }
+      DisplacementImage im;
+      im.operation_index = static_cast<int>(oi);
+      im.target_atom = op.image[static_cast<std::size_t>(atom)];
+      im.rotation = op.matrix;
+      ud.images.push_back(im);
+    }
+  };
 
   if (analysis.linear || analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
     std::vector<char> seen(n, 0);
@@ -265,17 +272,7 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
         } else {
           ud.irreps = {(dir.z() > 0.5) ? "Σ+" : "Π"};
         }
-        for (std::size_t oi = 0; oi < analysis.operations.size(); ++oi) {
-          const Operation& op = analysis.operations[oi];
-          if (static_cast<int>(op.image.size()) != n) {
-            continue;
-          }
-          DisplacementImage im;
-          im.operation_index = static_cast<int>(oi);
-          im.target_atom = op.image[static_cast<std::size_t>(i)];
-          im.rotation = op.matrix;
-          ud.images.push_back(im);
-        }
+        fill_images(ud, i);
         set.displacements.push_back(ud);
       }
     }
@@ -305,17 +302,7 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
         ud.direction = dir;
         ud.irreps = project_irreps(analysis, a, dir);
         ud.preserved_subgroup = preserved_subgroup_of(analysis, a, dir);
-        for (std::size_t oi = 0; oi < analysis.operations.size(); ++oi) {
-          const Operation& op = analysis.operations[oi];
-          if (static_cast<int>(op.image.size()) != n) {
-            continue;
-          }
-          DisplacementImage im;
-          im.operation_index = static_cast<int>(oi);
-          im.target_atom = op.image[static_cast<std::size_t>(a)];
-          im.rotation = op.matrix;
-          ud.images.push_back(im);
-        }
+        fill_images(ud, a);
         set.displacements.push_back(ud);
       }
     }

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace molsymm::detail {
 
@@ -47,7 +48,6 @@ void close_group(std::vector<Operation>& ops,
                  const std::vector<Atom>& atoms,
                  double tol,
                  int max_order) {
-  // Ensure identity present
   bool has_e = false;
   for (const Operation& op : ops) {
     if (op.kind == OperationKind::Identity) {
@@ -89,13 +89,13 @@ void close_group(std::vector<Operation>& ops,
         if (found) {
           continue;
         }
-        if (!is_symmetry(atoms, M, tol)) {
+        std::vector<int> image = permutation(atoms, M, tol);
+        if (image.empty()) {
           continue;
         }
         Operation neu;
         neu.matrix = M;
-        neu.image = permutation(atoms, M, tol);
-        // Classify by matrix properties
+        neu.image = std::move(image);
         const double det = M.determinant();
         const double tr = M.trace();
         if (matrices_equal(M, Mat3::Identity(), tol * 10.0)) {
@@ -123,19 +123,19 @@ void close_group(std::vector<Operation>& ops,
               }
             }
             neu.order = best_n;
-            Eigen::SelfAdjointEigenSolver<Mat3> es(0.5 * (M + M.transpose()));
-            // axis is eigenvector of eigenvalue 1
-            neu.axis = Vec3::UnitZ();
-            for (int k = 0; k < 3; ++k) {
-              if (std::abs(es.eigenvalues()(k) - 1.0) < 1e-4) {
-                neu.axis = es.eigenvectors().col(k);
-                break;
-              }
-            }
-            // Also try (M - M^T) axis extraction
             Vec3 ax(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
             if (ax.norm() > 1e-8) {
               neu.axis = ax.normalized();
+            } else {
+              // 180°: axis is the +1 eigenvector
+              Eigen::SelfAdjointEigenSolver<Mat3> es(0.5 * (M + M.transpose()));
+              neu.axis = Vec3::UnitZ();
+              for (int k = 0; k < 3; ++k) {
+                if (std::abs(es.eigenvalues()(k) - 1.0) < 1e-4) {
+                  neu.axis = es.eigenvectors().col(k);
+                  break;
+                }
+              }
             }
           }
         } else if (std::abs(det + 1.0) < 1e-6) {

@@ -2,6 +2,7 @@
 
 #include "molsymm/error.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <sstream>
 
@@ -156,19 +157,12 @@ CharacterTable table_cnv(int n) {
     add_irrep(ct, "B2", 1, chars(1, rot_vals(0, true), -1, 1));
   }
   for (int j = 1; j <= (n - 1) / 2; ++j) {
-    std::vector<double> rv;
-    for (int k = 1; k <= (n - 1) / 2; ++k) {
-      rv.push_back(2.0 * std::cos(2.0 * kPi * j * k / n));
-    }
-    if (n % 2 == 0) {
-      rv.push_back(2.0 * std::cos(kPi * j));
-    }
     std::ostringstream os;
     os << "E";
     if ((n - 1) / 2 > 1) {
       os << "_" << j;
     }
-    add_irrep(ct, os.str(), 2, chars(2, rv, 0, 0));
+    add_irrep(ct, os.str(), 2, chars(2, rot_vals(j, false), 0, 0));
   }
   return ct;
 }
@@ -310,22 +304,6 @@ CharacterTable table_dinfh() {
   add_irrep(ct, "Πu", 2, {2, 2, 0, -2, 2, 0});
   add_irrep(ct, "Δu", 2, {2, 2, 0, -2, -2, 0});
   return ct;
-}
-
-int parse_n(const std::string& name) {
-  std::size_t i = 0;
-  while (i < name.size() && !std::isdigit(static_cast<unsigned char>(name[i]))) {
-    ++i;
-  }
-  if (i >= name.size()) {
-    return 0;
-  }
-  int n = 0;
-  while (i < name.size() && std::isdigit(static_cast<unsigned char>(name[i]))) {
-    n = n * 10 + (name[i] - '0');
-    ++i;
-  }
-  return n;
 }
 
 std::string family(const std::string& name) {

@@ -69,18 +69,16 @@ double Analysis::symmetrize() {
       if (static_cast<int>(op.image.size()) != n) {
         continue;
       }
-      for (int i = 0; i < n; ++i) {
-        // op maps j → i means j = g^{-1} i; image[j]=i
-        int src = -1;
-        for (int j = 0; j < n; ++j) {
-          if (op.image[static_cast<std::size_t>(j)] == i) {
-            src = j;
-            break;
-          }
-        }
-        if (src < 0) {
+      std::vector<int> inv_image(static_cast<std::size_t>(n), -1);
+      for (int j = 0; j < n; ++j) {
+        const int i = op.image[static_cast<std::size_t>(j)];
+        if (i < 0 || i >= n || inv_image[static_cast<std::size_t>(i)] >= 0) {
           throw Error("operation image is not a permutation");
         }
+        inv_image[static_cast<std::size_t>(i)] = j;
+      }
+      for (int i = 0; i < n; ++i) {
+        const int src = inv_image[static_cast<std::size_t>(i)];
         avg[static_cast<std::size_t>(i)] += op.matrix * before[static_cast<std::size_t>(src)];
       }
     }

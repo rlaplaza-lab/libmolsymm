@@ -231,17 +231,7 @@ void Analysis::select_subgroup(const std::string& name) {
     return;
   }
 
-  int n = 0;
-  for (std::size_t i = 0; i < name.size(); ++i) {
-    if (name[i] >= '0' && name[i] <= '9') {
-      n = 0;
-      while (i < name.size() && name[i] >= '0' && name[i] <= '9') {
-        n = n * 10 + (name[i] - '0');
-        ++i;
-      }
-      break;
-    }
-  }
+  const int n = detail::parse_n(name);
 
   std::vector<Operation> kept;
   for (const Operation& op : operations) {
@@ -296,27 +286,15 @@ void Analysis::select_subgroup(const std::string& name) {
     }
   }
 
-  std::vector<Operation> uniq;
-  for (const Operation& op : kept) {
-    bool found = false;
-    for (const Operation& u : uniq) {
-      if (detail::matrices_equal(u.matrix, op.matrix, 1e-6)) {
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      uniq.push_back(op);
-    }
-  }
+  detail::dedupe_operations(kept, 1e-6);
 
   const int expect = detail::expected_group_order(name, n);
-  if (expect < 0 || static_cast<int>(uniq.size()) != expect) {
-    throw Error("cannot realize subgroup " + name + " (have " + std::to_string(uniq.size()) +
+  if (expect < 0 || static_cast<int>(kept.size()) != expect) {
+    throw Error("cannot realize subgroup " + name + " (have " + std::to_string(kept.size()) +
                 " operations, need " + std::to_string(expect) + ")");
   }
 
-  operations = std::move(uniq);
+  operations = std::move(kept);
   point_group = name;
   infinite = false;
   order = static_cast<int>(operations.size());

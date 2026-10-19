@@ -5,6 +5,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
+#include <utility>
 #include <vector>
 
 namespace nb = nanobind;
@@ -34,11 +35,9 @@ NB_MODULE(molsymm, m) {
              const double rms = a.symmetrize();
              const int n = a.molecule.size();
              Eigen::MatrixXd xyz(n, 3);
-             const molsymm::Mat3 Rinv = a.orientation.transpose();
              for (int i = 0; i < n; ++i) {
-               molsymm::Vec3 p =
-                   Rinv * a.molecule.atoms[static_cast<std::size_t>(i)].position + a.center_of_mass;
-               xyz.row(i) = p.transpose();
+               xyz.row(i) = a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(i)].position)
+                                .transpose();
              }
              return nb::make_tuple(rms, xyz);
            })
@@ -50,6 +49,19 @@ NB_MODULE(molsymm, m) {
           },
           nb::arg("step") = 1e-3);
 
+  auto mols_to_xyz = [](const std::vector<molsymm::Molecule>& mols) {
+    std::vector<Eigen::MatrixXd> out;
+    out.reserve(mols.size());
+    for (const auto& mol : mols) {
+      Eigen::MatrixXd xyz(mol.size(), 3);
+      for (int i = 0; i < mol.size(); ++i) {
+        xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
+      }
+      out.push_back(std::move(xyz));
+    }
+    return out;
+  };
+
   nb::class_<molsymm::DisplacementSet>(m, "DisplacementSet")
       .def_ro("step", &molsymm::DisplacementSet::step)
       .def_prop_ro("n",
@@ -57,29 +69,10 @@ NB_MODULE(molsymm, m) {
                      return static_cast<int>(d.displacements.size());
                    })
       .def_prop_ro("plus",
-                   [](const molsymm::DisplacementSet& d) {
-                     std::vector<Eigen::MatrixXd> out;
-                     for (const auto& mol : d.plus) {
-                       Eigen::MatrixXd xyz(mol.size(), 3);
-                       for (int i = 0; i < mol.size(); ++i) {
-                         xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
-                       }
-                       out.push_back(xyz);
-                     }
-                     return out;
-                   })
-      .def_prop_ro("minus",
-                   [](const molsymm::DisplacementSet& d) {
-                     std::vector<Eigen::MatrixXd> out;
-                     for (const auto& mol : d.minus) {
-                       Eigen::MatrixXd xyz(mol.size(), 3);
-                       for (int i = 0; i < mol.size(); ++i) {
-                         xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
-                       }
-                       out.push_back(xyz);
-                     }
-                     return out;
-                   })
+                   [mols_to_xyz](const molsymm::DisplacementSet& d) { return mols_to_xyz(d.plus); })
+      .def_prop_ro(
+          "minus",
+          [mols_to_xyz](const molsymm::DisplacementSet& d) { return mols_to_xyz(d.minus); })
       .def("gradient_from_energies",
            [](const molsymm::DisplacementSet& d,
               const std::vector<double>& ep,

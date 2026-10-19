@@ -3,6 +3,7 @@
 #include "molsymm/molecule.hpp"
 #include "molsymm/types.hpp"
 
+#include <cctype>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -10,6 +11,22 @@
 namespace molsymm::detail {
 
 inline constexpr double kPi = 3.14159265358979323846;
+
+inline int parse_n(const std::string& name) {
+  std::size_t i = 0;
+  while (i < name.size() && !std::isdigit(static_cast<unsigned char>(name[i]))) {
+    ++i;
+  }
+  if (i >= name.size()) {
+    return 0;
+  }
+  int n = 0;
+  while (i < name.size() && std::isdigit(static_cast<unsigned char>(name[i]))) {
+    n = n * 10 + (name[i] - '0');
+    ++i;
+  }
+  return n;
+}
 
 inline bool parallel_axis(const Vec3& a, const Vec3& b, double angle_tol) {
   const double na = a.norm();
@@ -50,6 +67,24 @@ inline Mat3 inversion_matrix() {
 
 inline bool matrices_equal(const Mat3& a, const Mat3& b, double tol) {
   return (a - b).cwiseAbs().maxCoeff() <= tol;
+}
+
+inline void dedupe_operations(std::vector<Operation>& ops, double tol) {
+  std::vector<Operation> uniq;
+  uniq.reserve(ops.size());
+  for (const Operation& op : ops) {
+    bool found = false;
+    for (const Operation& u : uniq) {
+      if (matrices_equal(u.matrix, op.matrix, tol)) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      uniq.push_back(op);
+    }
+  }
+  ops.swap(uniq);
 }
 
 int find_image(const std::vector<Atom>& atoms, int from, const Mat3& R, double tol);

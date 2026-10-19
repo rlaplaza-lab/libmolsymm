@@ -204,10 +204,9 @@ int molsymm_symmetrize(molsymm_analysis* a, double* rmsd, double* xyz_out) {
       *rmsd = r;
     }
     if (xyz_out) {
-      const molsymm::Mat3 Rinv = a->a.orientation.transpose();
       for (int i = 0; i < a->a.molecule.size(); ++i) {
-        molsymm::Vec3 p =
-            Rinv * a->a.molecule.atoms[static_cast<std::size_t>(i)].position + a->a.center_of_mass;
+        const molsymm::Vec3 p =
+            a->a.frame_to_input(a->a.molecule.atoms[static_cast<std::size_t>(i)].position);
         xyz_out[3 * i] = p.x();
         xyz_out[3 * i + 1] = p.y();
         xyz_out[3 * i + 2] = p.z();

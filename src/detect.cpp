@@ -5,7 +5,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <sstream>
 #include <utility>
@@ -68,7 +67,6 @@ bool atoms_collinear(const Molecule& mol, double tol) {
   if (mol.size() <= 2) {
     return true;
   }
-  // Find two atoms farthest from origin / each other for axis
   int i0 = 0;
   double rmax = 0.0;
   for (int i = 0; i < mol.size(); ++i) {
@@ -96,14 +94,13 @@ bool atoms_collinear(const Molecule& mol, double tol) {
 }
 
 int highest_order_on_axis(const std::vector<Atom>& atoms, const Vec3& axis, int max_n, double tol) {
-  int best = 1;
   for (int n = max_n; n >= 2; --n) {
     Mat3 R = detail::rotation_matrix(axis, 2.0 * detail::kPi / n);
     if (detail::is_symmetry(atoms, R, tol)) {
       return n;
     }
   }
-  return best;
+  return 1;
 }
 
 } // namespace
@@ -131,7 +128,6 @@ std::string classify_point_group(const std::vector<Operation>& ops,
     return os.str();
   };
 
-  // Polyhedral
   if (spherical_top && n_c3 >= 4) {
     if (n_c5 >= 6) {
       return has_inversion ? "Ih" : "I";
@@ -139,7 +135,6 @@ std::string classify_point_group(const std::vector<Operation>& ops,
     if (n_c4 >= 3) {
       return has_inversion ? "Oh" : "O";
     }
-    // T family
     bool has_s4 = false;
     bool has_sigma = false;
     for (const Operation& op : ops) {
@@ -190,7 +185,6 @@ std::string classify_point_group(const std::vector<Operation>& ops,
     if (has_sigma_v) {
       return name_n('C', highest_cn, "v");
     }
-    // Sn?
     for (const Operation& op : ops) {
       if (op.kind == OperationKind::ImproperRotation && op.order == 2 * highest_cn) {
         return name_n('S', 2 * highest_cn, "");
@@ -239,7 +233,6 @@ void align_to_frame(Molecule& mol,
                     std::vector<Operation>& ops,
                     Mat3& orientation,
                     const Tolerances& tol) {
-  // Find highest-order Cn axis
   Vec3 primary = Vec3::UnitZ();
   int best_n = 1;
   for (const Operation& op : ops) {
@@ -249,12 +242,10 @@ void align_to_frame(Molecule& mol,
     }
   }
   if (best_n == 1) {
-    // Use principal axes already applied; nothing more
     orientation = Mat3::Identity();
     return;
   }
 
-  // Secondary direction: C2' or atom in a plane
   Vec3 secondary = Vec3::UnitX();
   bool found = false;
   for (const Operation& op : ops) {
@@ -269,7 +260,6 @@ void align_to_frame(Molecule& mol,
   if (!found) {
     for (const Operation& op : ops) {
       if (op.kind == OperationKind::Reflection) {
-        // in-plane direction perpendicular to primary and to normal×primary
         Vec3 inplane = op.axis.cross(primary);
         if (inplane.norm() > 1e-8) {
           secondary = inplane.normalized();
@@ -354,7 +344,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   Eigen::SelfAdjointEigenSolver<Mat3> inertia_solver(I);
   Vec3 evals = inertia_solver.eigenvalues();
   Mat3 evecs = inertia_solver.eigenvectors();
-  // Sort eigenvalues ascending, keep eigenvectors
   std::array<int, 3> order{{0, 1, 2}};
   std::sort(order.begin(), order.end(), [&](int a, int b) { return evals(a) < evals(b); });
   Mat3 sorted = Mat3::Zero();
@@ -368,7 +357,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   }
   result.principal_axes = sorted;
 
-  // Rotate into principal-axis frame (columns of sorted are lab axes)
   Mat3 to_frame = sorted.transpose();
   for (Atom& a : mol.atoms) {
     a.position = to_frame * a.position;
@@ -386,7 +374,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   result.equivalence_sets = build_equivalence_sets(mol, tol.primary);
 
   std::vector<Operation> ops;
-  // Identity
   {
     Operation e;
     e.kind = OperationKind::Identity;
@@ -395,13 +382,16 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     ops.push_back(e);
   }
 
-  // Inversion
-  if (detail::is_symmetry(mol.atoms, detail::inversion_matrix(), tol.primary)) {
-    Operation inv;
-    inv.kind = OperationKind::Inversion;
-    inv.matrix = detail::inversion_matrix();
-    inv.image = detail::permutation(mol.atoms, inv.matrix, tol.primary);
-    ops.push_back(inv);
+  {
+    const Mat3 inv_mat = detail::inversion_matrix();
+    std::vector<int> image = detail::permutation(mol.atoms, inv_mat, tol.primary);
+    if (!image.empty()) {
+      Operation inv;
+      inv.kind = OperationKind::Inversion;
+      inv.matrix = inv_mat;
+      inv.image = std::move(image);
+      ops.push_back(inv);
+    }
   }
 
   std::vector<Vec3> axes;
@@ -425,8 +415,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   }
 
   if (result.linear) {
-    // Keep finite generators: C2 perp, σv, and i/σh
-    // Ensure molecule along z
     if (collinear) {
       int i0 = 0;
       double rmax = 0;
@@ -477,7 +465,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
             ops.push_back(op);
           }
         }
-        // Sn along same axis
         for (int sn = 2; sn <= 2 * n; sn += 2) {
           Operation op = make_sn(axis, sn, 1, mol.atoms, tol.primary);
           if (!op.image.empty()) {
@@ -485,14 +472,12 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
           }
         }
       }
-      // Reflection with this normal
       Operation sig = make_sigma(axis, PlaneKind::None, mol.atoms, tol.primary);
       if (!sig.image.empty()) {
         ops.push_back(sig);
       }
     }
 
-    // Pair midplanes
     for (const EquivalenceSet& eq_set : result.equivalence_sets) {
       for (std::size_t i = 0; i < eq_set.atoms.size(); ++i) {
         for (std::size_t j = i + 1; j < eq_set.atoms.size(); ++j) {
@@ -511,29 +496,12 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   }
 
-  // Deduplicate before closing
-  {
-    std::vector<Operation> uniq;
-    for (const Operation& op : ops) {
-      bool found = false;
-      for (const Operation& u : uniq) {
-        if (detail::matrices_equal(u.matrix, op.matrix, tol.primary * 10.0)) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        uniq.push_back(op);
-      }
-    }
-    ops.swap(uniq);
-  }
+  detail::dedupe_operations(ops, tol.primary * 10.0);
 
   if (!result.linear) {
     detail::close_group(ops, mol.atoms, tol.primary, tol.max_group_order);
   }
 
-  // Recount features
   bool has_inversion = false;
   bool has_sigma_h = false;
   bool has_sigma_v = false;
@@ -556,7 +524,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       add_unique_axis(c2_axes, op.axis, tol.angle);
     }
   }
-  // Count unique high-order axes
   std::vector<Vec3> c3a;
   std::vector<Vec3> c4a;
   std::vector<Vec3> c5a;
@@ -585,7 +552,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   }
 
-  // Label reflection planes relative to primary axis
   for (Operation& op : ops) {
     if (op.kind != OperationKind::Reflection) {
       continue;
@@ -615,20 +581,9 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
                                                     n_c5,
                                                     spherical);
 
-  // Parse n from name
-  int n_group = highest_cn;
-  if (result.point_group.size() >= 2 &&
-      (result.point_group[0] == 'C' || result.point_group[0] == 'D' ||
-       result.point_group[0] == 'S')) {
-    std::size_t i = 1;
-    if (std::isdigit(static_cast<unsigned char>(result.point_group[i]))) {
-      n_group = 0;
-      while (i < result.point_group.size() &&
-             std::isdigit(static_cast<unsigned char>(result.point_group[i]))) {
-        n_group = n_group * 10 + (result.point_group[i] - '0');
-        ++i;
-      }
-    }
+  int n_group = detail::parse_n(result.point_group);
+  if (n_group == 0) {
+    n_group = highest_cn;
   }
 
   Mat3 extra = Mat3::Identity();
