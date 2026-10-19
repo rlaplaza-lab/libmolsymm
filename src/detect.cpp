@@ -482,8 +482,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   } else {
     for (const Vec3& axis : axes) {
-      const AxisOrder ao =
-          highest_order_on_axis(mol.atoms, by_z, axis, tol.max_axis_order, tol.primary);
+      AxisOrder ao = highest_order_on_axis(mol.atoms, by_z, axis, tol.max_axis_order, tol.primary);
       if (ao.n >= 2) {
         for (int k = 1; k < ao.n; ++k) {
           Operation op;

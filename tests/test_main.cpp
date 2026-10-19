@@ -436,12 +436,8 @@ bool is_iqmol_high_symmetry(const char* file) {
       "cyclopropane.xyz",
       "octahedral.xyz",
   };
-  for (const char* f : files) {
-    if (std::string(f) == file) {
-      return true;
-    }
-  }
-  return false;
+  return std::any_of(
+      std::begin(files), std::end(files), [&](const char* f) { return std::string(f) == file; });
 }
 
 void test_xyz_slight_rattle() {

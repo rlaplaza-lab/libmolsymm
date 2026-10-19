@@ -372,14 +372,10 @@ bool axis_parallel_to_c4(const Vec3& axis, const std::vector<Operation>& ops) {
     return false;
   }
   const Vec3 u = axis.normalized();
-  for (const Operation& op : ops) {
-    if (op.kind == OperationKind::ProperRotation && op.order == 4 && op.axis.norm() > 1e-12) {
-      if (std::abs(u.dot(op.axis.normalized())) > 0.9) {
-        return true;
-      }
-    }
-  }
-  return false;
+  return std::any_of(ops.begin(), ops.end(), [&](const Operation& op) {
+    return op.kind == OperationKind::ProperRotation && op.order == 4 && op.axis.norm() > 1e-12 &&
+           std::abs(u.dot(op.axis.normalized())) > 0.9;
+  });
 }
 
 int abstract_class_index(const std::string& fam,
@@ -624,7 +620,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
 
   auto strip_parity = [](std::string iname, bool& odd) {
     odd = false;
-    if (iname.size() >= 2 && iname.compare(iname.size() - 2, 2, "''") == 0) {
+    if (iname.ends_with("''")) {
       odd = true;
       iname.resize(iname.size() - 2);
     } else if (!iname.empty() && iname.back() == '\'') {
