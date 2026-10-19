@@ -14,12 +14,12 @@ option(MOLSYMM_BUILD_SHARED "Build shared library" ON)
 include(FetchContent)
 find_package(Eigen3 3.4 QUIET NO_MODULE)
 if(NOT Eigen3_FOUND)
-  # Prefer a GitHub mirror: gitlab.com/libeigen is occasionally unavailable in CI.
+  # Tarball avoids flaky git clones against gitlab.com under CI load.
   FetchContent_Declare(
     Eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG 3.4.0
-    GIT_SHALLOW TRUE
+    URL https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.bz2
+    URL_HASH SHA256=b4c198460eba6f28d34894e3a5710998818515104d6e74e5cc331ce31e46e626
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
   )
   set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
   set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
