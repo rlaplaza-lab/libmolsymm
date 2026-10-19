@@ -111,11 +111,6 @@ int find_image(
 std::vector<int>
 permutation(const std::vector<Atom>& atoms, const ElementIndex& by_z, const Mat3& R, double tol);
 
-bool is_symmetry(const std::vector<Atom>& atoms,
-                 const ElementIndex& by_z,
-                 const Mat3& R,
-                 double tol);
-
 CharacterTable
 build_character_table(const std::string& name, int n, const std::vector<Operation>& ops);
 

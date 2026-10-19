@@ -42,13 +42,6 @@ permutation(const std::vector<Atom>& atoms, const ElementIndex& by_z, const Mat3
   return image;
 }
 
-bool is_symmetry(const std::vector<Atom>& atoms,
-                 const ElementIndex& by_z,
-                 const Mat3& R,
-                 double tol) {
-  return !permutation(atoms, by_z, R, tol).empty();
-}
-
 void close_group(std::vector<Operation>& ops,
                  const std::vector<Atom>& atoms,
                  double tol,

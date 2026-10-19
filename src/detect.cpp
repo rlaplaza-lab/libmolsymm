@@ -376,7 +376,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   if (sorted.determinant() < 0) {
     sorted.col(0) *= -1;
   }
-  result.principal_axes = sorted;
 
   Mat3 to_frame = sorted.transpose();
   for (Atom& a : mol.atoms) {

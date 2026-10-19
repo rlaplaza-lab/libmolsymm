@@ -18,8 +18,7 @@ struct Analysis {
   Molecule molecule; // in Cotton/principal-axis frame, COM at origin
   Molecule original; // input molecule (unmodified)
   Vec3 center_of_mass = Vec3::Zero();
-  Mat3 principal_axes = Mat3::Identity(); // columns are axes; R maps body→lab as R * r_body
-  Mat3 orientation = Mat3::Identity();    // maps input (COM-centered) → frame used in molecule
+  Mat3 orientation = Mat3::Identity(); // maps input (COM-centered) → frame used in molecule
   std::vector<EquivalenceSet> equivalence_sets;
   std::vector<Operation> operations;
   CharacterTable character_table;
