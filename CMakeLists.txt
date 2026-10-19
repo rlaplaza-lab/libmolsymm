@@ -69,6 +69,10 @@ endif()
 target_compile_features(molsymm PUBLIC cxx_std_20)
 # Needed when a static core is linked into the Python extension module.
 set_target_properties(molsymm PROPERTIES POSITION_INDEPENDENT_CODE ON)
+# Windows: nanobind module OUTPUT_NAME "molsymm" would collide with molsymm.lib (LNK1149).
+if(WIN32 AND NOT MOLSYMM_BUILD_SHARED)
+  set_target_properties(molsymm PROPERTIES OUTPUT_NAME molsymm_core)
+endif()
 
 function(molsymm_set_warnings target)
   if(MSVC)

@@ -57,9 +57,9 @@ test-requires = ["pytest", "numpy"]
 test-command = "python -m pytest {project}/tests/test_python.py -q"
 test-extras = []
 
-# aarch64 via QEMU on the Ubuntu runner; macOS/Windows use native runner archs.
+# Native arch per runner (ubuntu-24.04 + ubuntu-24.04-arm); avoid QEMU.
 [tool.cibuildwheel.linux]
-archs = ["x86_64", "aarch64"]
+archs = ["auto"]
 
 [tool.ruff]
 target-version = "py311"
