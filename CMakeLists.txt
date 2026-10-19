@@ -12,15 +12,19 @@ option(MOLSYMM_BUILD_TESTS "Build tests" ON)
 option(MOLSYMM_BUILD_SHARED "Build shared library" ON)
 
 include(FetchContent)
-FetchContent_Declare(
-  Eigen
-  GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-  GIT_TAG 3.4.0
-  GIT_SHALLOW TRUE
-)
-set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
-set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(Eigen)
+find_package(Eigen3 3.4 QUIET NO_MODULE)
+if(NOT Eigen3_FOUND)
+  # Prefer a GitHub mirror: gitlab.com/libeigen is occasionally unavailable in CI.
+  FetchContent_Declare(
+    Eigen
+    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
+    GIT_TAG 3.4.0
+    GIT_SHALLOW TRUE
+  )
+  set(EIGEN_BUILD_DOC OFF CACHE BOOL "" FORCE)
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(Eigen)
+endif()
 
 set(MOLSYMM_SOURCES
   src/masses.cpp
