@@ -1,0 +1,11 @@
+build/
+build-lint/
+cmake-build-*/
+*.o
+*.so
+*.a
+*.mod
+__pycache__/
+*.egg-info/
+.dist/
+compile_commands.json
