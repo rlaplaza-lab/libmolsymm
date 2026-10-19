@@ -4,6 +4,7 @@
 #include <cmath>
 #include <fstream>
 #include <iostream>
+#include <random>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -313,8 +314,32 @@ struct XyzCase {
   int expect_sigma;
   int expect_ndisp; // -1 = only check 1 <= n < 3N
   double primary;
+  double max_rmsd;
   std::vector<const char*> subgroups;
 };
+
+const std::vector<XyzCase>& xyz_corpus() {
+  // 22paracyclophane is D2h chemically, but the published coordinates only recover
+  // D2 (missing σh) even at primary=5e-3; assert what analyze returns.
+  // cyclopropane needs primary=1e-2 to recover D3h (ideal chemistry) from the
+  // IQmol fragment coordinates.
+  static const std::vector<XyzCase> cases = {
+      {"water.xyz", "C2v", 4, 2, 6, 1e-3, 1e-3, {"Cs", "C2"}},
+      {"anion-pi.xyz", "C6v", 12, 6, 8, 1e-3, 1e-3, {"C6", "C3v", "C2v", "Cs"}},
+      {"22paracyclophane.xyz", "D2", 4, 4, 24, 5e-3, 1e-3, {"D2", "C2"}},
+      {"E_2butene.xyz", "C2h", 4, 2, 15, 1e-3, 1e-3, {"C2", "Ci"}},
+      {"pt_complex.xyz", "C2v", 4, 2, 15, 1e-3, 1e-3, {"Cs", "C2"}},
+      {"c60.xyz", "Ih", 120, 60, 3, 1e-3, 1e-3, {"I", "C5", "C5v", "D5d", "Th"}},
+      {"cubane.xyz", "Oh", 48, 24, 2, 1e-3, 1e-3, {"O", "Td", "C4v", "D4h"}},
+      {"adamantane.xyz", "Td", 24, 12, 9, 1e-3, 1e-3, {"T", "C3v", "C2v"}},
+      {"coronene.xyz", "D6h", 24, 12, 10, 1e-3, 1e-3, {"D6", "C6v", "C2v"}},
+      {"corannulene.xyz", "C5v", 10, 5, 10, 1e-3, 1e-3, {"C5", "Cs"}},
+      {"ferrocene.xyz", "D5d", 20, 10, 5, 1e-3, 1e-3, {"D5", "C5v", "S10"}},
+      {"cyclopropane.xyz", "D3h", 12, 6, 3, 1e-2, 5e-3, {"D3", "C3v", "C3h"}},
+      {"octahedral.xyz", "Oh", 48, 24, 2, 1e-3, 1e-3, {"O", "C4v", "D4h"}},
+  };
+  return cases;
+}
 
 void check_xyz_case(const XyzCase& c) {
   const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
@@ -332,7 +357,9 @@ void check_xyz_case(const XyzCase& c) {
              std::to_string(a.symmetry_number));
   expect(!a.character_table.irrep_names.empty(),
          std::string(c.file) + " character table non-empty");
-  expect(a.rmsd < 1e-3, std::string(c.file) + " rmsd " + std::to_string(a.rmsd));
+  expect(a.rmsd < c.max_rmsd,
+         std::string(c.file) + " rmsd " + std::to_string(a.rmsd) + " max " +
+             std::to_string(c.max_rmsd));
   for (const char* sg : c.subgroups) {
     expect(has_subgroup(a, sg), std::string(c.file) + " has subgroup " + sg);
   }
@@ -352,21 +379,98 @@ void check_xyz_case(const XyzCase& c) {
 }
 
 void test_xyz_corpus() {
-  // Geometry is D2h chemically, but the published coordinates only recover D2
-  // (missing σh) even at primary=5e-3; assert what analyze returns.
-  const std::vector<XyzCase> cases = {
-      {"water.xyz", "C2v", 4, 2, 6, 1e-3, {"Cs", "C2"}},
-      {"anion-pi.xyz", "C6v", 12, 6, 8, 1e-3, {"C6", "C3v", "C2v", "Cs"}},
-      {"22paracyclophane.xyz", "D2", 4, 4, 24, 5e-3, {"D2", "C2"}},
-      {"E_2butene.xyz", "C2h", 4, 2, 15, 1e-3, {"C2", "Ci"}},
-      {"pt_complex.xyz", "C2v", 4, 2, 15, 1e-3, {"Cs", "C2"}},
-  };
-
-  for (const XyzCase& c : cases) {
+  for (const XyzCase& c : xyz_corpus()) {
     try {
       check_xyz_case(c);
     } catch (const std::exception& ex) {
       expect(false, std::string(c.file) + " exception: " + ex.what());
+    }
+  }
+}
+
+molsymm::Molecule rattle_molecule(molsymm::Molecule mol, double amplitude, unsigned seed) {
+  std::mt19937 rng(seed);
+  std::uniform_real_distribution<double> dist(-amplitude, amplitude);
+  for (auto& atom : mol.atoms) {
+    atom.position.x() += dist(rng);
+    atom.position.y() += dist(rng);
+    atom.position.z() += dist(rng);
+  }
+  return mol;
+}
+
+void test_xyz_slight_rattle() {
+  // IQmol high-symmetry geometries: tiny noise must not change the group.
+  static const char* const iqmol_files[] = {
+      "c60.xyz",       "cubane.xyz",   "adamantane.xyz",  "coronene.xyz",
+      "corannulene.xyz", "ferrocene.xyz", "cyclopropane.xyz", "octahedral.xyz",
+  };
+  unsigned seed = 42;
+  for (const char* file : iqmol_files) {
+    const XyzCase* match = nullptr;
+    for (const XyzCase& c : xyz_corpus()) {
+      if (std::string(c.file) == file) {
+        match = &c;
+        break;
+      }
+    }
+    if (!match) {
+      expect(false, std::string(file) + " missing from corpus");
+      continue;
+    }
+    try {
+      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + file;
+      molsymm::Molecule mol = rattle_molecule(load_xyz(path), 1e-4, seed++);
+      molsymm::Tolerances tol;
+      tol.primary = match->primary;
+      auto a = molsymm::analyze(mol, tol);
+      expect(a.point_group == match->expect_pg,
+             std::string(file) + " slight rattle group " + match->expect_pg + " got " +
+                 a.point_group);
+      expect(a.order == match->expect_order,
+             std::string(file) + " slight rattle order " + std::to_string(match->expect_order) +
+                 " got " + std::to_string(a.order));
+      expect(a.symmetry_number == match->expect_sigma,
+             std::string(file) + " slight rattle sigma " + std::to_string(match->expect_sigma) +
+                 " got " + std::to_string(a.symmetry_number));
+      expect(a.rmsd < match->max_rmsd,
+             std::string(file) + " slight rattle rmsd " + std::to_string(a.rmsd));
+    } catch (const std::exception& ex) {
+      expect(false, std::string(file) + " slight rattle exception: " + ex.what());
+    }
+  }
+}
+
+void test_xyz_large_rattle() {
+  // Larger noise: default tolerance drops the ideal group; looser tolerance recovers it.
+  struct LargeRattleCase {
+    const char* file;
+    const char* expect_pg;
+  };
+  const LargeRattleCase cases[] = {
+      {"cubane.xyz", "Oh"},
+      {"cyclopropane.xyz", "D3h"},
+      {"octahedral.xyz", "Oh"},
+  };
+  unsigned seed = 99;
+  for (const LargeRattleCase& c : cases) {
+    try {
+      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
+      molsymm::Molecule mol = rattle_molecule(load_xyz(path), 5e-3, seed++);
+      molsymm::Tolerances tight;
+      tight.primary = 1e-3;
+      auto a_tight = molsymm::analyze(mol, tight);
+      expect(a_tight.point_group != c.expect_pg,
+             std::string(c.file) + " large rattle at 1e-3 should drop " + c.expect_pg +
+                 " got " + a_tight.point_group);
+      molsymm::Tolerances loose;
+      loose.primary = 2e-2;
+      auto a_loose = molsymm::analyze(mol, loose);
+      expect(a_loose.point_group == c.expect_pg,
+             std::string(c.file) + " large rattle at 2e-2 recovers " + c.expect_pg + " got " +
+                 a_loose.point_group);
+    } catch (const std::exception& ex) {
+      expect(false, std::string(c.file) + " large rattle exception: " + ex.what());
     }
   }
 }
@@ -379,6 +483,8 @@ int main() {
   test_displacements_water();
   test_displacements_methane();
   test_xyz_corpus();
+  test_xyz_slight_rattle();
+  test_xyz_large_rattle();
   if (g_failed) {
     std::cerr << g_failed << " failures\n";
     return 1;

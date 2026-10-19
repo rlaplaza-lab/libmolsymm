@@ -1,8 +1,11 @@
-The XYZ geometries in this directory are copied from:
+The XYZ geometries in this directory come from two sources.
 
-  https://github.com/aligfellow/xyzgraph/tree/main/examples
+---
 
-They are distributed under the MIT License:
+From https://github.com/aligfellow/xyzgraph/tree/main/examples
+(water.xyz, anion-pi.xyz, 22paracyclophane.xyz, E_2butene.xyz, pt_complex.xyz):
+
+MIT License
 
   Copyright (c) 2025 Alister S. Goodfellow
 
@@ -23,3 +26,14 @@ They are distributed under the MIT License:
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
+
+---
+
+From https://github.com/nutjunkie/IQmol/tree/master/share/fragments/Molecules
+(c60.xyz, cubane.xyz, adamantane.xyz, coronene.xyz, corannulene.xyz,
+ferrocene.xyz, cyclopropane.xyz, octahedral.xyz):
+
+These fragment geometries are from IQmol by Andrew Gilbert and are distributed
+under the GNU General Public License v3.0. See
+https://github.com/nutjunkie/IQmol/blob/master/LICENSE for the full text.
+They are vendored here as test inputs only and are not linked into the library.

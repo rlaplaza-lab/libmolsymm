@@ -85,8 +85,17 @@ def test_xyz_anion_pi() -> None:
     assert a.order == 12
 
 
+def test_xyz_c60() -> None:
+    numbers, positions = load_xyz(DATA_DIR / "c60.xyz")
+    a = molsymm.analyze(numbers, positions)
+    assert a.point_group == "Ih"
+    assert a.symmetry_number == 60
+    assert a.order == 120
+
+
 if __name__ == "__main__":
     test_synthetic_water()
     test_xyz_water()
     test_xyz_anion_pi()
+    test_xyz_c60()
     print("python smoke ok")
