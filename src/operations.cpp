@@ -153,18 +153,9 @@ void close_group(std::vector<Operation>& ops,
             }
           } else {
             neu.kind = OperationKind::ImproperRotation;
-            double c = std::clamp((-tr - 1.0) * 0.5, -1.0, 1.0);
-            // For Sn: improper = σ * Cn, trace = -1 + 2 cos? Actually S_n = σh * Cn
-            // character of improper rotation: -1 + 2 cos θ for the matrix with det -1
-            // More carefully: reflection has tr=1; inversion tr=-3; S3 etc.
-            // Use angle of the proper part.
-            Mat3 proper = -M; // not always right
-            // Extract axis from the -1 eigenspace of the reflection-like part
-            Eigen::JacobiSVD<Mat3> svd(M - Mat3::Identity());
-            (void)svd;
             Vec3 ax(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
             if (ax.norm() < 1e-8) {
-              // pure reflection or inversion already handled; S2 = i
+              // 180° improper: axis from the -1 eigenspace
               Eigen::SelfAdjointEigenSolver<Mat3> es(0.5 * (M + M.transpose()));
               for (int k = 0; k < 3; ++k) {
                 if (std::abs(es.eigenvalues()(k) + 1.0) < 0.5) {
@@ -174,7 +165,6 @@ void close_group(std::vector<Operation>& ops,
               }
             }
             neu.axis = ax.normalized();
-            // Estimate order from M^{2k} = I
             neu.order = 2;
             Mat3 P = Mat3::Identity();
             for (int ord = 1; ord <= 48; ++ord) {
@@ -184,8 +174,6 @@ void close_group(std::vector<Operation>& ops,
                 break;
               }
             }
-            (void)c;
-            (void)proper;
           }
         } else {
           continue;

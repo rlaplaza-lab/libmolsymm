@@ -1,5 +1,7 @@
 #include "internal.hpp"
 
+#include "molsymm/error.hpp"
+
 #include <cmath>
 #include <sstream>
 
@@ -96,12 +98,8 @@ CharacterTable table_cnv(int n) {
     ct.class_sizes.push_back(2);
   }
   if (n % 2 == 0) {
-    std::ostringstream os;
-    os << "C_2";
-    ct.class_labels.push_back(os.str());
+    ct.class_labels.emplace_back("C_2");
     ct.class_sizes.push_back(1);
-  }
-  if (n % 2 == 0) {
     ct.class_labels.emplace_back("nσv");
     ct.class_sizes.push_back(n / 2);
     ct.class_labels.emplace_back("nσd");
@@ -208,8 +206,10 @@ CharacterTable table_t() {
   CharacterTable ct;
   ct.class_labels = {"E", "4C3", "4C3^2", "3C2"};
   ct.class_sizes = {1, 4, 4, 3};
+  // Complex irreps (1E/2E); real parts of ω, ω² so dim² sums to |T|=12.
   add_irrep(ct, "A", 1, {1, 1, 1, 1});
-  add_irrep(ct, "E", 2, {2, -1, -1, 2}); // real reducible form of complex pair
+  add_irrep(ct, "1E", 1, {1, -0.5, -0.5, 1});
+  add_irrep(ct, "2E", 1, {1, -0.5, -0.5, 1});
   add_irrep(ct, "T", 3, {3, 0, 0, -1});
   return ct;
 }
@@ -219,11 +219,26 @@ CharacterTable table_th() {
   ct.class_labels = {"E", "4C3", "4C3^2", "3C2", "i", "4S6", "4S6^5", "3σh"};
   ct.class_sizes = {1, 4, 4, 3, 1, 4, 4, 3};
   add_irrep(ct, "Ag", 1, {1, 1, 1, 1, 1, 1, 1, 1});
-  add_irrep(ct, "Eg", 2, {2, -1, -1, 2, 2, -1, -1, 2});
+  add_irrep(ct, "1Eg", 1, {1, -0.5, -0.5, 1, 1, -0.5, -0.5, 1});
+  add_irrep(ct, "2Eg", 1, {1, -0.5, -0.5, 1, 1, -0.5, -0.5, 1});
   add_irrep(ct, "Tg", 3, {3, 0, 0, -1, 3, 0, 0, -1});
   add_irrep(ct, "Au", 1, {1, 1, 1, 1, -1, -1, -1, -1});
-  add_irrep(ct, "Eu", 2, {2, -1, -1, 2, -2, 1, 1, -2});
+  add_irrep(ct, "1Eu", 1, {1, -0.5, -0.5, 1, -1, 0.5, 0.5, -1});
+  add_irrep(ct, "2Eu", 1, {1, -0.5, -0.5, 1, -1, 0.5, 0.5, -1});
   add_irrep(ct, "Tu", 3, {3, 0, 0, -1, -3, 0, 0, 1});
+  return ct;
+}
+
+CharacterTable double_irreps(const CharacterTable& base,
+                             const std::string& even_suffix,
+                             const std::string& odd_suffix) {
+  CharacterTable ct;
+  ct.class_labels = base.class_labels;
+  ct.class_sizes = base.class_sizes;
+  for (std::size_t i = 0; i < base.irrep_names.size(); ++i) {
+    add_irrep(ct, base.irrep_names[i] + even_suffix, base.irrep_dims[i], base.characters[i]);
+    add_irrep(ct, base.irrep_names[i] + odd_suffix, base.irrep_dims[i], base.characters[i]);
+  }
   return ct;
 }
 
@@ -343,6 +358,200 @@ std::string family(const std::string& name) {
   return name;
 }
 
+int rotation_power(const Operation& op) {
+  if (op.power > 0) {
+    return op.power % std::max(op.order, 1);
+  }
+  if (op.order <= 1 ||
+      (op.kind != OperationKind::ProperRotation && op.kind != OperationKind::ImproperRotation)) {
+    return 0;
+  }
+  Mat3 M = op.matrix;
+  if (op.kind == OperationKind::ImproperRotation) {
+    // S_n = σ · C_n along the same axis; recover the proper part.
+    M = reflection_matrix(op.axis) * op.matrix;
+  }
+  const double tr = M.trace();
+  const double c = std::clamp((tr - 1.0) * 0.5, -1.0, 1.0);
+  double ang = std::acos(c);
+  Vec3 skew(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
+  if (op.axis.norm() > 1e-12 && skew.dot(op.axis.normalized()) < 0.0) {
+    ang = -ang;
+  }
+  int best = 1;
+  double best_err = 1e9;
+  for (int k = 1; k < op.order; ++k) {
+    double target = 2.0 * kPi * k / op.order;
+    if (target > kPi) {
+      target -= 2.0 * kPi;
+    }
+    const double err = std::abs(ang - target);
+    if (err < best_err) {
+      best_err = err;
+      best = k;
+    }
+  }
+  return best;
+}
+
+bool axis_parallel_to_c4(const Vec3& axis, const std::vector<Operation>& ops) {
+  if (axis.norm() < 1e-12) {
+    return false;
+  }
+  const Vec3 u = axis.normalized();
+  for (const Operation& op : ops) {
+    if (op.kind == OperationKind::ProperRotation && op.order == 4 && op.axis.norm() > 1e-12) {
+      if (std::abs(u.dot(op.axis.normalized())) > 0.9) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+int abstract_class_index(const std::string& fam,
+                         const Operation& rep,
+                         const std::vector<Operation>& ops) {
+  if (fam == "C1") {
+    return 0;
+  }
+  if (fam == "Cs") {
+    return (rep.kind == OperationKind::Reflection) ? 1 : 0;
+  }
+  if (fam == "Ci") {
+    return (rep.kind == OperationKind::Inversion) ? 1 : 0;
+  }
+  if (fam == "Td") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      return 1;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return 2;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 4) {
+      return 3;
+    }
+    if (rep.kind == OperationKind::Reflection) {
+      return 4;
+    }
+  } else if (fam == "T") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 4) ? 1 : 2; // 4C3 vs 4C3^2
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return 3;
+    }
+  } else if (fam == "Th") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 4) ? 1 : 2;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return 3;
+    }
+    if (rep.kind == OperationKind::Inversion) {
+      return 4;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 5) ? 5 : 6; // 4S6 vs 4S6^5
+    }
+    if (rep.kind == OperationKind::Reflection) {
+      return 7;
+    }
+  } else if (fam == "O") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      return 1;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return axis_parallel_to_c4(rep.axis, ops) ? 4 : 2;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 4) {
+      return 3;
+    }
+  } else if (fam == "Oh") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      return 1;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 4) {
+      return 3;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return axis_parallel_to_c4(rep.axis, ops) ? 4 : 2;
+    }
+    if (rep.kind == OperationKind::Inversion) {
+      return 5;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 4) {
+      return 6;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
+      return 7;
+    }
+    if (rep.kind == OperationKind::Reflection) {
+      return axis_parallel_to_c4(rep.axis, ops) ? 8 : 9; // σh vs σd
+    }
+  } else if (fam == "I") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 5) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 4) ? 1 : 2; // C5 vs C5^2
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      return 3;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return 4;
+    }
+  } else if (fam == "Ih") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 5) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 4) ? 1 : 2;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
+      return 3;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return 4;
+    }
+    if (rep.kind == OperationKind::Inversion) {
+      return 5;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 10) {
+      const int p = rotation_power(rep);
+      return (p == 1 || p == 9) ? 6 : 7; // S10 vs S10^3
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
+      return 8;
+    }
+    if (rep.kind == OperationKind::Reflection) {
+      return 9;
+    }
+  }
+  throw Error("unmapped conjugacy class for group " + fam);
+}
+
 } // namespace
 
 CharacterTable
@@ -368,227 +577,193 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
   } else if (fam == "I") {
     ct = table_i();
   } else if (fam == "Cinfv") {
-    ct = table_cinfv();
+    return table_cinfv();
   } else if (fam == "Dinfh") {
-    ct = table_dinfh();
+    return table_dinfh();
   } else if (fam == "Kh") {
     ct.class_labels = {"E"};
     ct.class_sizes = {1};
     add_irrep(ct, "S", 1, {1});
-  } else if (fam == "Cnv" || fam == "Dn" || fam == "Dnh" || fam == "Dnd") {
-    // Use Cnv abelianization for axial groups; χ(g) filled per operation below.
+    return ct;
+  } else if (fam == "Cnv" || fam == "Dn") {
     ct = table_cnv(n > 0 ? n : parse_n(name));
-  } else if (fam == "Cn" || fam == "Cnh" || fam == "Sn") {
+  } else if (fam == "Dnh" || fam == "Dnd") {
+    ct = double_irreps(table_cnv(n > 0 ? n : parse_n(name)), "g", "u");
+  } else if (fam == "Cn" || fam == "Sn") {
     ct = table_cn(n > 0 ? n : parse_n(name));
+  } else if (fam == "Cnh") {
+    ct = double_irreps(table_cn(n > 0 ? n : parse_n(name)), "'", "''");
   } else {
-    // C1 and unknown groups
     ct = table_c1();
   }
 
-  // Build an operation-indexed character lookup: replace table with one column per class_index
-  if (!ops.empty() && !ct.characters.empty()) {
-    int nclass = 0;
-    for (const Operation& op : ops) {
-      nclass = std::max(nclass, op.class_index + 1);
-    }
-    if (nclass > 0) {
-      CharacterTable indexed;
-      indexed.irrep_names = ct.irrep_names;
-      indexed.irrep_dims = ct.irrep_dims;
-      indexed.class_labels.resize(nclass);
-      indexed.class_sizes.assign(nclass, 0);
-      for (const Operation& op : ops) {
-        indexed.class_sizes[static_cast<std::size_t>(op.class_index)]++;
-      }
-      // Character of each class from matrix trace in representation is hard;
-      // use geometric formula: χ for vector rep etc. For Mulliken labels we compute
-      // from operation kind for standard 1D/2D axial groups.
-      indexed.characters.assign(ct.irrep_names.size(), std::vector<double>(nclass, 0.0));
-
-      // Fill by matching each operation to the nearest abstract class via character of
-      // the defining representation (3D orthogonal matrix trace & det).
-      // For axial groups, assign using order and plane kind.
-      const std::string& f = fam;
-      const int nn = n > 0 ? n : parse_n(name);
-
-      if (f == "C1" || f == "Cs" || f == "Ci" || f == "Td" || f == "Oh" || f == "T" || f == "Th" ||
-          f == "O" || f == "I" || f == "Ih") {
-        // Map each op to abstract class by (kind, order) heuristic
-        for (int ic = 0; ic < nclass; ++ic) {
-          // Find a representative operation
-          const Operation* rep = nullptr;
-          for (const Operation& op : ops) {
-            if (op.class_index == ic) {
-              rep = &op;
-              break;
-            }
-          }
-          if (!rep) {
-            continue;
-          }
-          int abstract = 0;
-          if (f == "Td") {
-            if (rep->kind == OperationKind::Identity) {
-              abstract = 0;
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 3) {
-              abstract = 1;
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 2) {
-              abstract = 2;
-            } else if (rep->kind == OperationKind::ImproperRotation && rep->order == 4) {
-              abstract = 3;
-            } else if (rep->kind == OperationKind::Reflection) {
-              abstract = 4;
-            }
-          } else if (f == "Oh") {
-            if (rep->kind == OperationKind::Identity) {
-              abstract = 0;
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 3) {
-              abstract = 1;
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 2 &&
-                       std::abs(rep->axis.normalized().dot(Vec3::UnitZ())) < 0.5 &&
-                       std::abs(rep->axis.normalized().dot(Vec3::UnitX())) < 0.5) {
-              abstract = 2; // C2 along face diagonal-ish — approximate
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 4) {
-              abstract = 3;
-            } else if (rep->kind == OperationKind::ProperRotation && rep->order == 2) {
-              abstract = 4;
-            } else if (rep->kind == OperationKind::Inversion) {
-              abstract = 5;
-            } else if (rep->kind == OperationKind::ImproperRotation && rep->order == 4) {
-              abstract = 6;
-            } else if (rep->kind == OperationKind::ImproperRotation && rep->order == 6) {
-              abstract = 7;
-            } else if (rep->kind == OperationKind::Reflection &&
-                       rep->plane == PlaneKind::Horizontal) {
-              abstract = 8;
-            } else if (rep->kind == OperationKind::Reflection) {
-              abstract = 9;
-            }
-          } else if (f == "C1") {
-            abstract = 0;
-          } else if (f == "Cs") {
-            abstract = (rep->kind == OperationKind::Reflection) ? 1 : 0;
-          } else if (f == "Ci") {
-            abstract = (rep->kind == OperationKind::Inversion) ? 1 : 0;
-          }
-          abstract = std::min(abstract, static_cast<int>(ct.class_labels.size()) - 1);
-          indexed.class_labels[static_cast<std::size_t>(ic)] =
-              ct.class_labels[static_cast<std::size_t>(abstract)];
-          for (std::size_t ir = 0; ir < ct.characters.size(); ++ir) {
-            indexed.characters[ir][static_cast<std::size_t>(ic)] =
-                ct.characters[ir][static_cast<std::size_t>(abstract)];
-          }
-        }
-        return indexed;
-      }
-
-      // Axial: compute characters from formulas per operation
-      for (std::size_t ir = 0; ir < indexed.irrep_names.size(); ++ir) {
-        const std::string& iname = indexed.irrep_names[ir];
-        for (const Operation& op : ops) {
-          double chi = 0.0;
-          if (op.kind == OperationKind::Identity) {
-            chi = indexed.irrep_dims[ir];
-          } else if (f == "Cnv" || f == "Dn" || f == "Dnh" || f == "Dnd") {
-            // Simplified: A1 all +1; A2 σ=-1; E: 2cos on Cn, 0 on σ
-            if (iname == "A1" || iname == "A1g") {
-              chi = 1.0;
-            } else if (iname == "A2" || iname == "A2g") {
-              if (op.kind == OperationKind::Reflection ||
-                  (op.kind == OperationKind::ProperRotation && op.order == 2 &&
-                   std::abs(op.axis.z()) < 0.5)) {
-                chi = -1.0;
-              } else {
-                chi = 1.0;
-              }
-            } else if (iname == "B1" || iname == "B1g") {
-              if (op.kind == OperationKind::ProperRotation) {
-                chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
-              } else if (op.kind == OperationKind::Reflection) {
-                chi = (op.plane == PlaneKind::Vertical) ? 1.0 : -1.0;
-              } else {
-                chi = 1.0;
-              }
-            } else if (iname == "B2" || iname == "B2g") {
-              if (op.kind == OperationKind::ProperRotation) {
-                chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
-              } else if (op.kind == OperationKind::Reflection) {
-                chi = (op.plane == PlaneKind::Vertical) ? -1.0 : 1.0;
-              } else {
-                chi = 1.0;
-              }
-            } else if (!iname.empty() && iname[0] == 'E') {
-              int j = 1;
-              auto pos = iname.find('_');
-              if (pos != std::string::npos) {
-                j = std::stoi(iname.substr(pos + 1));
-              }
-              if (op.kind == OperationKind::ProperRotation && op.order >= 2) {
-                chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
-              } else {
-                chi = 0.0;
-              }
-            } else {
-              chi = (op.kind == OperationKind::Identity) ? indexed.irrep_dims[ir] : 0.0;
-            }
-            if (op.kind == OperationKind::Inversion) {
-              if (!iname.empty() && iname.back() == 'u') {
-                chi = -chi;
-              }
-            }
-          } else if (f == "Cn" || f == "Cnh" || f == "Sn") {
-            if (iname == "A") {
-              chi = 1.0;
-            } else if (iname == "B") {
-              chi = (op.kind == OperationKind::ProperRotation && (op.power % 2)) ? -1.0 : 1.0;
-            } else if (!iname.empty() && iname[0] == 'E') {
-              int j = 1;
-              auto pos = iname.find('_');
-              if (pos != std::string::npos) {
-                j = std::stoi(iname.substr(pos + 1));
-              }
-              if (op.kind == OperationKind::ProperRotation) {
-                chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
-              } else {
-                chi = 0.0;
-              }
-            }
-          }
-          indexed.characters[ir][static_cast<std::size_t>(op.class_index)] = chi;
-        }
-      }
-      // Labels
-      for (int ic = 0; ic < nclass; ++ic) {
-        for (const Operation& op : ops) {
-          if (op.class_index == ic) {
-            std::ostringstream os;
-            switch (op.kind) {
-            case OperationKind::Identity:
-              os << "E";
-              break;
-            case OperationKind::Inversion:
-              os << "i";
-              break;
-            case OperationKind::ProperRotation:
-              os << "C" << op.order;
-              break;
-            case OperationKind::ImproperRotation:
-              os << "S" << op.order;
-              break;
-            case OperationKind::Reflection:
-              os << "σ";
-              break;
-            }
-            indexed.class_labels[static_cast<std::size_t>(ic)] = os.str();
-            break;
-          }
-        }
-      }
-      return indexed;
-    }
+  if (ops.empty() || ct.characters.empty()) {
+    return ct;
   }
 
-  return ct;
+  int nclass = 0;
+  for (const Operation& op : ops) {
+    nclass = std::max(nclass, op.class_index + 1);
+  }
+  if (nclass <= 0) {
+    return ct;
+  }
+
+  CharacterTable indexed;
+  indexed.irrep_names = ct.irrep_names;
+  indexed.irrep_dims = ct.irrep_dims;
+  indexed.class_labels.resize(nclass);
+  indexed.class_sizes.assign(nclass, 0);
+  for (const Operation& op : ops) {
+    indexed.class_sizes[static_cast<std::size_t>(op.class_index)]++;
+  }
+  indexed.characters.assign(ct.irrep_names.size(), std::vector<double>(nclass, 0.0));
+
+  const std::string& f = fam;
+  const int nn = n > 0 ? n : parse_n(name);
+
+  if (f == "C1" || f == "Cs" || f == "Ci" || f == "Td" || f == "Oh" || f == "T" || f == "Th" ||
+      f == "O" || f == "I" || f == "Ih") {
+    for (int ic = 0; ic < nclass; ++ic) {
+      const Operation* rep = nullptr;
+      for (const Operation& op : ops) {
+        if (op.class_index == ic) {
+          rep = &op;
+          break;
+        }
+      }
+      if (!rep) {
+        throw Error("empty conjugacy class in " + fam);
+      }
+      const int abstract = abstract_class_index(f, *rep, ops);
+      if (abstract < 0 || abstract >= static_cast<int>(ct.class_labels.size())) {
+        throw Error("abstract class out of range for " + fam);
+      }
+      indexed.class_labels[static_cast<std::size_t>(ic)] =
+          ct.class_labels[static_cast<std::size_t>(abstract)];
+      for (std::size_t ir = 0; ir < ct.characters.size(); ++ir) {
+        indexed.characters[ir][static_cast<std::size_t>(ic)] =
+            ct.characters[ir][static_cast<std::size_t>(abstract)];
+      }
+    }
+    return indexed;
+  }
+
+  auto strip_parity = [](std::string iname, bool& odd) {
+    odd = false;
+    if (iname.size() >= 2 && iname.compare(iname.size() - 2, 2, "''") == 0) {
+      odd = true;
+      iname.resize(iname.size() - 2);
+    } else if (!iname.empty() && iname.back() == '\'') {
+      iname.pop_back();
+    } else if (!iname.empty() && (iname.back() == 'g' || iname.back() == 'u')) {
+      odd = (iname.back() == 'u');
+      iname.pop_back();
+    }
+    return iname;
+  };
+
+  // Axial: characters from Mulliken formulas per operation
+  for (std::size_t ir = 0; ir < indexed.irrep_names.size(); ++ir) {
+    bool odd_parity = false;
+    const std::string base = strip_parity(indexed.irrep_names[ir], odd_parity);
+    for (const Operation& op : ops) {
+      double chi = 0.0;
+      if (op.kind == OperationKind::Identity) {
+        chi = indexed.irrep_dims[ir];
+      } else if (f == "Cnv" || f == "Dn" || f == "Dnh" || f == "Dnd") {
+        if (base == "A1") {
+          chi = 1.0;
+        } else if (base == "A2") {
+          if (op.kind == OperationKind::Reflection ||
+              (op.kind == OperationKind::ProperRotation && op.order == 2 &&
+               std::abs(op.axis.z()) < 0.5)) {
+            chi = -1.0;
+          } else {
+            chi = 1.0;
+          }
+        } else if (base == "B1") {
+          if (op.kind == OperationKind::ProperRotation) {
+            chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
+          } else if (op.kind == OperationKind::Reflection) {
+            chi = (op.plane == PlaneKind::Vertical) ? 1.0 : -1.0;
+          } else {
+            chi = 1.0;
+          }
+        } else if (base == "B2") {
+          if (op.kind == OperationKind::ProperRotation) {
+            chi = (op.power * (nn / std::max(op.order, 1)) % 2 == 0) ? 1.0 : -1.0;
+          } else if (op.kind == OperationKind::Reflection) {
+            chi = (op.plane == PlaneKind::Vertical) ? -1.0 : 1.0;
+          } else {
+            chi = 1.0;
+          }
+        } else if (!base.empty() && base[0] == 'E') {
+          int j = 1;
+          auto pos = base.find('_');
+          if (pos != std::string::npos) {
+            j = std::stoi(base.substr(pos + 1));
+          }
+          if (op.kind == OperationKind::ProperRotation && op.order >= 2) {
+            chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
+          } else {
+            chi = 0.0;
+          }
+        }
+      } else if (f == "Cn" || f == "Cnh" || f == "Sn") {
+        if (base == "A") {
+          chi = 1.0;
+        } else if (base == "B") {
+          chi = (op.kind == OperationKind::ProperRotation && (op.power % 2)) ? -1.0 : 1.0;
+        } else if (!base.empty() && base[0] == 'E') {
+          int j = 1;
+          auto pos = base.find('_');
+          if (pos != std::string::npos) {
+            j = std::stoi(base.substr(pos + 1));
+          }
+          if (op.kind == OperationKind::ProperRotation) {
+            chi = 2.0 * std::cos(2.0 * kPi * j * op.power / op.order);
+          } else {
+            chi = 0.0;
+          }
+        }
+      }
+      const bool improper = op.kind == OperationKind::Inversion ||
+                            op.kind == OperationKind::Reflection ||
+                            op.kind == OperationKind::ImproperRotation;
+      if (odd_parity && improper) {
+        chi = -chi;
+      }
+      indexed.characters[ir][static_cast<std::size_t>(op.class_index)] = chi;
+    }
+  }
+  for (int ic = 0; ic < nclass; ++ic) {
+    for (const Operation& op : ops) {
+      if (op.class_index == ic) {
+        std::ostringstream os;
+        switch (op.kind) {
+        case OperationKind::Identity:
+          os << "E";
+          break;
+        case OperationKind::Inversion:
+          os << "i";
+          break;
+        case OperationKind::ProperRotation:
+          os << "C" << op.order;
+          break;
+        case OperationKind::ImproperRotation:
+          os << "S" << op.order;
+          break;
+        case OperationKind::Reflection:
+          os << "σ";
+          break;
+        }
+        indexed.class_labels[static_cast<std::size_t>(ic)] = os.str();
+        break;
+      }
+    }
+  }
+  return indexed;
 }
 
 } // namespace molsymm::detail

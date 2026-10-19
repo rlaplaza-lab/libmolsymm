@@ -161,6 +161,49 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
   return s;
 }
 
+int expected_group_order(const std::string& name, int n) {
+  if (name == "C1") {
+    return 1;
+  }
+  if (name == "Cs" || name == "Ci") {
+    return 2;
+  }
+  if (name == "T") {
+    return 12;
+  }
+  if (name == "Td" || name == "Th" || name == "O") {
+    return 24;
+  }
+  if (name == "Oh") {
+    return 48;
+  }
+  if (name == "I") {
+    return 60;
+  }
+  if (name == "Ih") {
+    return 120;
+  }
+  if (name.empty()) {
+    return -1;
+  }
+  if (name[0] == 'S' && n > 0) {
+    return n;
+  }
+  if (name[0] == 'C' && n > 0) {
+    if (name.back() == 'v' || name.back() == 'h') {
+      return 2 * n;
+    }
+    return n;
+  }
+  if (name[0] == 'D' && n > 0) {
+    if (name.back() == 'h' || name.back() == 'd') {
+      return 4 * n;
+    }
+    return 2 * n;
+  }
+  return -1;
+}
+
 } // namespace molsymm::detail
 
 namespace molsymm {
@@ -170,8 +213,6 @@ void Analysis::select_subgroup(const std::string& name) {
   if (it == subgroups.end()) {
     throw Error("subgroup not listed: " + name);
   }
-  // Restrict operations to those generating the subgroup is non-trivial.
-  // For practical use: if requesting C1, keep only identity; if same as current, no-op.
   if (name == point_group) {
     return;
   }
@@ -189,18 +230,8 @@ void Analysis::select_subgroup(const std::string& name) {
     subgroups = detail::constructive_subgroups("C1", 1);
     return;
   }
-  // Filter by matching classified subgroup name via re-detect on same geometry with
-  // forced operation subset is heavy; keep operations that belong to the subgroup
-  // family by regenerating from name for common cases.
-  point_group = name;
-  int n = 1;
-  for (char c : name) {
-    if (c >= '0' && c <= '9') {
-      n = n * 10 + (c - '0');
-    }
-  }
-  // Re-parse properly
-  n = 0;
+
+  int n = 0;
   for (std::size_t i = 0; i < name.size(); ++i) {
     if (name[i] >= '0' && name[i] <= '9') {
       n = 0;
@@ -211,11 +242,18 @@ void Analysis::select_subgroup(const std::string& name) {
       break;
     }
   }
-  // Keep identity + operations compatible with reduced group by order constraints
+
   std::vector<Operation> kept;
   for (const Operation& op : operations) {
     if (op.kind == OperationKind::Identity) {
       kept.push_back(op);
+      continue;
+    }
+    if (name == "T") {
+      // Rotation subgroup of Td / Th: drop improper elements.
+      if (op.kind == OperationKind::ProperRotation) {
+        kept.push_back(op);
+      }
       continue;
     }
     if (name == "Cs" && op.kind == OperationKind::Reflection) {
@@ -257,7 +295,7 @@ void Analysis::select_subgroup(const std::string& name) {
       }
     }
   }
-  // Deduplicate
+
   std::vector<Operation> uniq;
   for (const Operation& op : kept) {
     bool found = false;
@@ -271,8 +309,17 @@ void Analysis::select_subgroup(const std::string& name) {
       uniq.push_back(op);
     }
   }
+
+  const int expect = detail::expected_group_order(name, n);
+  if (expect < 0 || static_cast<int>(uniq.size()) != expect) {
+    throw Error("cannot realize subgroup " + name + " (have " + std::to_string(uniq.size()) +
+                " operations, need " + std::to_string(expect) + ")");
+  }
+
   operations = std::move(uniq);
-  order = infinite ? 0 : static_cast<int>(operations.size());
+  point_group = name;
+  infinite = false;
+  order = static_cast<int>(operations.size());
   detail::assign_conjugacy_classes(operations, 1e-6);
   character_table = detail::build_character_table(point_group, n, operations);
   subgroups = detail::constructive_subgroups(point_group, n);

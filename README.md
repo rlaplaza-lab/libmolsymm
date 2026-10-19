@@ -4,8 +4,11 @@ C++20 library for molecular point-group symmetry: detection, character tables,
 subgroups, geometry symmetrization, and **symmetry-reduced finite-difference
 displacements** that rebuild Cartesian gradients and Hessians.
 
-Independent implementation (detection ideas related to Johansson & Veryazov,
-*J. Cheminform.* 2017). Orbital SALCs are out of scope.
+Independent implementation. Detection ideas are related to
+Johansson, M., Veryazov, V. Automatic procedure for generating symmetry
+adapted wavefunctions. *J Cheminform* **9**, 8 (2017).
+https://doi.org/10.1186/s13321-017-0193-3
+Orbital SALCs are out of scope.
 
 ## Features
 

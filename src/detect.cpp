@@ -7,7 +7,6 @@
 #include <array>
 #include <cctype>
 #include <cmath>
-#include <numeric>
 #include <sstream>
 #include <utility>
 
@@ -167,11 +166,9 @@ std::string classify_point_group(const std::vector<Operation>& ops,
     // Dnd has σd and typically S_{2n}
     bool has_sigma_d = false;
     for (const Operation& op : ops) {
-      if (op.kind == OperationKind::Reflection && op.plane == PlaneKind::Dihedral) {
+      if (op.kind == OperationKind::Reflection) {
         has_sigma_d = true;
-      }
-      if (op.kind == OperationKind::Reflection && !has_sigma_h) {
-        has_sigma_d = true;
+        break;
       }
     }
     bool has_s2n = false;
@@ -475,9 +472,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       const int n = highest_order_on_axis(mol.atoms, axis, tol.max_axis_order, tol.primary);
       if (n >= 2) {
         for (int k = 1; k < n; ++k) {
-          if (std::gcd(k, n) != 1 && k != n / 2) {
-            // still add all powers for group completeness later
-          }
           Operation op = make_cn(axis, n, k, mol.atoms, tol.primary);
           if (!op.image.empty()) {
             ops.push_back(op);
@@ -549,7 +543,6 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   int n_c4 = 0;
   int n_c5 = 0;
   std::vector<Vec3> c2_axes;
-  std::vector<Vec3> cn_axes;
 
   for (Operation& op : ops) {
     if (op.kind == OperationKind::Inversion) {
@@ -559,18 +552,8 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       highest_cn = op.order;
       primary_axis = op.axis.normalized();
     }
-  }
-  for (Operation& op : ops) {
-    if (op.kind == OperationKind::ProperRotation) {
-      if (op.order == 2) {
-        add_unique_axis(c2_axes, op.axis, tol.angle);
-      }
-      if (op.order >= 3) {
-        add_unique_axis(cn_axes, op.axis, tol.angle);
-      }
-      if (op.order == 3 && op.power == 1) {
-        // count unique axes
-      }
+    if (op.kind == OperationKind::ProperRotation && op.order == 2) {
+      add_unique_axis(c2_axes, op.axis, tol.angle);
     }
   }
   // Count unique high-order axes
@@ -669,11 +652,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       detail::build_character_table(result.point_group, n_group, result.operations);
   result.subgroups = detail::constructive_subgroups(result.point_group, n_group);
 
-  // RMSD of current geometry vs symmetrized
-  Molecule before = result.molecule;
   result.rmsd = result.symmetrize();
-  // symmetrize mutates molecule; keep symmetrized form
-  (void)before;
 
   return result;
 }

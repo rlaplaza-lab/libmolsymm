@@ -1,6 +1,7 @@
 #include "molsymm/analysis.hpp"
 
 #include "internal.hpp"
+#include "molsymm/error.hpp"
 
 #include <cmath>
 
@@ -65,19 +66,20 @@ double Analysis::symmetrize() {
     const double inv_g = 1.0 / static_cast<double>(operations.size());
     std::vector<Vec3> avg(n, Vec3::Zero());
     for (const Operation& op : operations) {
+      if (static_cast<int>(op.image.size()) != n) {
+        continue;
+      }
       for (int i = 0; i < n; ++i) {
         // op maps j → i means j = g^{-1} i; image[j]=i
         int src = -1;
-        if (static_cast<int>(op.image.size()) == n) {
-          for (int j = 0; j < n; ++j) {
-            if (op.image[static_cast<std::size_t>(j)] == i) {
-              src = j;
-              break;
-            }
+        for (int j = 0; j < n; ++j) {
+          if (op.image[static_cast<std::size_t>(j)] == i) {
+            src = j;
+            break;
           }
         }
         if (src < 0) {
-          src = i;
+          throw Error("operation image is not a permutation");
         }
         avg[static_cast<std::size_t>(i)] += op.matrix * before[static_cast<std::size_t>(src)];
       }

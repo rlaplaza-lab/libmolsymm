@@ -222,36 +222,67 @@ void test_point_groups() {
     molsymm::Tolerances loose;
     loose.primary = 1e-2;
     auto a = molsymm::analyze(w, loose);
-    expect(a.point_group == "C2v" || a.rmsd < 0.1, "perturbed water recovers or small rmsd");
+    expect(a.point_group == "C2v", "perturbed water recovers C2v got " + a.point_group);
     a.symmetrize();
   }
 }
 
-void test_subgroups_and_table() {
-  auto a = molsymm::analyze(benzene());
-  bool has_d6 = false;
-  bool has_c6v = false;
-  bool has_c2v = false;
-  for (const auto& s : a.subgroups) {
-    if (s == "D6") {
-      has_d6 = true;
-    }
-    if (s == "C6v") {
-      has_c6v = true;
-    }
-    if (s == "C2v") {
-      has_c2v = true;
+void expect_character_table_consistent(const molsymm::Analysis& a, const std::string& label) {
+  const auto& ct = a.character_table;
+  expect(!ct.irrep_names.empty(), label + " character table non-empty");
+  if (a.infinite || a.order <= 0 || ct.irrep_dims.empty() || ct.characters.empty()) {
+    return;
+  }
+  int dim2 = 0;
+  for (int d : ct.irrep_dims) {
+    dim2 += d * d;
+  }
+  expect(dim2 == a.order,
+         label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
+  // Totally symmetric irrep is first and +1 on every class.
+  expect(!ct.characters.front().empty(), label + " totally symmetric row present");
+  bool all_one = true;
+  for (double chi : ct.characters.front()) {
+    if (std::abs(chi - 1.0) > 1e-8) {
+      all_one = false;
+      break;
     }
   }
-  expect(has_d6 && has_c6v && has_c2v, "D6h subgroups include D6, C6v, C2v");
-  expect(!a.character_table.irrep_names.empty(), "character table non-empty");
+  expect(all_one, label + " totally symmetric row is +1 on every class");
+}
+
+void test_subgroups_and_table() {
+  auto a = molsymm::analyze(benzene());
+  expect(has_subgroup(a, "D6") && has_subgroup(a, "C6v") && has_subgroup(a, "C2v"),
+         "D6h subgroups include D6, C6v, C2v");
+  expect_character_table_consistent(a, "benzene");
+
+  auto d6 = a;
+  d6.select_subgroup("D6");
+  expect(d6.point_group == "D6" && d6.order == 12, "benzene select_subgroup D6");
+  expect_character_table_consistent(d6, "benzene/D6");
+
+  auto c6v = a;
+  c6v.select_subgroup("C6v");
+  expect(c6v.point_group == "C6v" && c6v.order == 12, "benzene select_subgroup C6v");
+  expect_character_table_consistent(c6v, "benzene/C6v");
+
+  auto m = molsymm::analyze(methane());
+  m.select_subgroup("T");
+  expect(m.point_group == "T" && m.order == 12, "methane select_subgroup T");
+  expect_character_table_consistent(m, "methane/T");
 }
 
 void test_displacements_water() {
   auto a = molsymm::analyze(water());
+  expect_character_table_consistent(a, "water");
   auto d = molsymm::unique_displacements(a, 1e-3);
   expect(static_cast<int>(d.displacements.size()) == 6,
          "water has 6 unique displacements, got " + std::to_string(d.displacements.size()));
+  for (std::size_t u = 0; u < d.displacements.size(); ++u) {
+    expect(!d.displacements[u].irreps.empty(),
+           "water displacement " + std::to_string(u) + " has irreps");
+  }
 
   // Planted Hessian: identity on 3N (in original frame)
   const int n = a.original.size();
@@ -312,7 +343,7 @@ struct XyzCase {
   const char* expect_pg;
   int expect_order;
   int expect_sigma;
-  int expect_ndisp; // -1 = only check 1 <= n < 3N
+  int expect_ndisp;
   double primary;
   double max_rmsd;
   std::vector<const char*> subgroups;
@@ -355,8 +386,7 @@ void check_xyz_case(const XyzCase& c) {
   expect(a.symmetry_number == c.expect_sigma,
          std::string(c.file) + " sigma expect " + std::to_string(c.expect_sigma) + " got " +
              std::to_string(a.symmetry_number));
-  expect(!a.character_table.irrep_names.empty(),
-         std::string(c.file) + " character table non-empty");
+  expect_character_table_consistent(a, c.file);
   expect(a.rmsd < c.max_rmsd,
          std::string(c.file) + " rmsd " + std::to_string(a.rmsd) + " max " +
              std::to_string(c.max_rmsd));
@@ -369,13 +399,9 @@ void check_xyz_case(const XyzCase& c) {
   expect(nd >= 1 && nd < n3,
          std::string(c.file) + " unique disp in [1,3N) got " + std::to_string(nd) + " of " +
              std::to_string(n3));
-  if (c.expect_ndisp >= 0) {
-    expect(nd == c.expect_ndisp,
-           std::string(c.file) + " unique disp expect " + std::to_string(c.expect_ndisp) + " got " +
-               std::to_string(nd));
-  } else {
-    std::cout << "info: " << c.file << " unique displacements = " << nd << "\n";
-  }
+  expect(nd == c.expect_ndisp,
+         std::string(c.file) + " unique disp expect " + std::to_string(c.expect_ndisp) + " got " +
+             std::to_string(nd));
 }
 
 void test_xyz_corpus() {
@@ -399,9 +425,8 @@ molsymm::Molecule rattle_molecule(molsymm::Molecule mol, double amplitude, unsig
   return mol;
 }
 
-void test_xyz_slight_rattle() {
-  // IQmol high-symmetry geometries: tiny noise must not change the group.
-  static const char* const iqmol_files[] = {
+bool is_iqmol_high_symmetry(const char* file) {
+  static const char* const files[] = {
       "c60.xyz",
       "cubane.xyz",
       "adamantane.xyz",
@@ -411,38 +436,39 @@ void test_xyz_slight_rattle() {
       "cyclopropane.xyz",
       "octahedral.xyz",
   };
-  unsigned seed = 42;
-  for (const char* file : iqmol_files) {
-    const XyzCase* match = nullptr;
-    for (const XyzCase& c : xyz_corpus()) {
-      if (std::string(c.file) == file) {
-        match = &c;
-        break;
-      }
+  for (const char* f : files) {
+    if (std::string(f) == file) {
+      return true;
     }
-    if (!match) {
-      expect(false, std::string(file) + " missing from corpus");
+  }
+  return false;
+}
+
+void test_xyz_slight_rattle() {
+  // IQmol high-symmetry geometries: tiny noise must not change the group.
+  unsigned seed = 42;
+  for (const XyzCase& c : xyz_corpus()) {
+    if (!is_iqmol_high_symmetry(c.file)) {
       continue;
     }
     try {
-      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + file;
+      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
       molsymm::Molecule mol = rattle_molecule(load_xyz(path), 1e-4, seed++);
       molsymm::Tolerances tol;
-      tol.primary = match->primary;
+      tol.primary = c.primary;
       auto a = molsymm::analyze(mol, tol);
-      expect(a.point_group == match->expect_pg,
-             std::string(file) + " slight rattle group " + match->expect_pg + " got " +
-                 a.point_group);
-      expect(a.order == match->expect_order,
-             std::string(file) + " slight rattle order " + std::to_string(match->expect_order) +
+      expect(a.point_group == c.expect_pg,
+             std::string(c.file) + " slight rattle group " + c.expect_pg + " got " + a.point_group);
+      expect(a.order == c.expect_order,
+             std::string(c.file) + " slight rattle order " + std::to_string(c.expect_order) +
                  " got " + std::to_string(a.order));
-      expect(a.symmetry_number == match->expect_sigma,
-             std::string(file) + " slight rattle sigma " + std::to_string(match->expect_sigma) +
+      expect(a.symmetry_number == c.expect_sigma,
+             std::string(c.file) + " slight rattle sigma " + std::to_string(c.expect_sigma) +
                  " got " + std::to_string(a.symmetry_number));
-      expect(a.rmsd < match->max_rmsd,
-             std::string(file) + " slight rattle rmsd " + std::to_string(a.rmsd));
+      expect(a.rmsd < c.max_rmsd,
+             std::string(c.file) + " slight rattle rmsd " + std::to_string(a.rmsd));
     } catch (const std::exception& ex) {
-      expect(false, std::string(file) + " slight rattle exception: " + ex.what());
+      expect(false, std::string(c.file) + " slight rattle exception: " + ex.what());
     }
   }
 }

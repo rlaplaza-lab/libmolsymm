@@ -172,7 +172,7 @@ std::vector<std::string> project_irreps(const Analysis& analysis, int atom, cons
   std::vector<std::string> out;
   const CharacterTable& ct = analysis.character_table;
   if (ct.irrep_names.empty() || analysis.operations.empty()) {
-    return {"A"};
+    throw Error("character table missing for irrep projection");
   }
   const int g = static_cast<int>(analysis.operations.size());
   for (std::size_t ir = 0; ir < ct.irrep_names.size(); ++ir) {
@@ -194,9 +194,6 @@ std::vector<std::string> project_irreps(const Analysis& analysis, int atom, cons
     if (std::abs(proj) > 1e-6) {
       out.push_back(ct.irrep_names[ir]);
     }
-  }
-  if (out.empty()) {
-    out.push_back(ct.irrep_names.front());
   }
   return out;
 }
@@ -327,12 +324,13 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
   // ± geometries: displace ONLY the representative atom (unique Cartesian),
   // returned in the original input frame.
   for (const UniqueDisplacement& ud : set.displacements) {
-    Molecule plus = analysis.molecule;
-    Molecule minus = analysis.molecule;
-    plus.atoms[static_cast<std::size_t>(ud.atom)].position += step * ud.direction;
-    minus.atoms[static_cast<std::size_t>(ud.atom)].position -= step * ud.direction;
-    set.plus.push_back(to_original_frame(analysis, plus));
-    set.minus.push_back(to_original_frame(analysis, minus));
+    auto displaced = [&](double signed_step) {
+      Molecule m = analysis.molecule;
+      m.atoms[static_cast<std::size_t>(ud.atom)].position += signed_step * ud.direction;
+      return to_original_frame(analysis, m);
+    };
+    set.plus.push_back(displaced(step));
+    set.minus.push_back(displaced(-step));
   }
 
   return set;

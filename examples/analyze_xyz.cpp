@@ -3,6 +3,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,7 @@ static int atomic_number_from_symbol(const std::string& sym) {
       return z;
     }
   }
-  return 0;
+  throw std::runtime_error("unknown element symbol: " + sym);
 }
 
 int main(int argc, char** argv) {
