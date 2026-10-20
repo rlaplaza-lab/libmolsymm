@@ -68,6 +68,14 @@ a = molsymm.analyze([8, 1, 1], np.array([[0, 0, 0.1173],
 print(a.point_group, a.symmetry_number)
 d = a.displacements(step=1e-3)
 print(d.n)
+
+angle = 104.5 * np.pi / 180.0
+z = molsymm.analyze_zmatrix([
+    (8,),
+    (1, 1, 0.957),
+    (1, 1, 0.957, 2, angle),
+])
+print(z.point_group)
 ```
 
 From a source checkout (needs CMake ≥ 3.20 and a C++20 compiler):
@@ -77,6 +85,8 @@ pip install .
 ```
 
 ## Fortran
+
+`xyz` is `(3, n)`.
 
 ```fortran
 use molsymm
@@ -100,20 +110,53 @@ References must point at earlier atoms. Rows with `atomic_number <= 0` are kept
 and receive the usual mass fallback of 1, so dummy centers should be omitted
 before analysis.
 
+```cpp
+constexpr double deg = 0.017453292519943295; // π/180
+std::vector<molsymm::ZMatrixAtom> z = {
+    {8, 0, 0, 0, 0.0, 0.0, 0.0},
+    {1, 1, 0, 0, 0.957, 0.0, 0.0},
+    {1, 1, 2, 0, 0.957, 104.5 * deg, 0.0},
+};
+molsymm::Analysis a = molsymm::analyze(molsymm::molecule_from_zmatrix(z));
+```
+
+`zmatrix_positions` returns the Cartesian coordinates alone. The C row has the
+same field order: `atomic_number`, `bond_to`, `angle_to`, `dihedral_to`,
+`distance`, `angle`, `dihedral`.
+
 ```c
 molsymm_zatom z[] = {
     {8, 0, 0, 0, 0.0, 0.0, 0.0},
     {1, 1, 0, 0, 0.957, 0.0, 0.0},
-    {1, 1, 2, 0, 0.957, 104.5 * 3.14159265358979323846 / 180.0, 0.0},
+    {1, 1, 2, 0, 0.957, 104.5 * 0.017453292519943295, 0.0},
 };
 molsymm_analysis* a = NULL;
 molsymm_analyze_zmatrix(z, 3, 1e-3, &a);
+double xyz[9];
+molsymm_zmatrix_to_xyz(z, 3, xyz);
 ```
 
-`molsymm_zmatrix_to_xyz` writes the same coordinates without analyzing them.
-Python: `analyze_zmatrix(entries)` and `zmatrix_to_xyz(entries)`, where each
-entry is `(Z,)`, `(Z, bond_to, R)`, `(Z, bond_to, R, angle_to, angle)`, or the
-full 7-tuple. Fortran: `ms_zatom`, `ms_analyze_zmatrix`, `ms_zmatrix_to_xyz`.
+Python entries are `(Z,)`, `(Z, bond_to, R)`, `(Z, bond_to, R, angle_to, angle)`,
+or the full 7-tuple. `analyze_zmatrix` is shown above; `zmatrix_to_xyz(entries)`
+returns `(n, 3)`.
+
+```fortran
+type(ms_zatom) :: z(3)
+real(c_double) :: ang, xyz(3, 3)
+ang = 104.5d0 * acos(-1.0d0) / 180.0d0
+z = ms_zatom(0, 0, 0, 0, 0.0d0, 0.0d0, 0.0d0)
+z(1)%atomic_number = 8
+z(2)%atomic_number = 1
+z(2)%bond_to = 1
+z(2)%distance = 0.957d0
+z(3)%atomic_number = 1
+z(3)%bond_to = 1
+z(3)%angle_to = 2
+z(3)%distance = 0.957d0
+z(3)%angle = ang
+call ms_analyze_zmatrix(z, handle, status)
+call ms_zmatrix_to_xyz(z, xyz, status)  ! xyz is (3, n)
+```
 
 ## Finite-difference contract
 

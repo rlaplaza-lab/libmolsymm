@@ -9,12 +9,12 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "libmolsymm"
 version = "1.1.0"
-description = "Molecular point-group symmetry detection and symmetrization"
+description = "Molecular point-group symmetry, Z-matrix input, and symmetry-reduced finite differences"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "libmolsymm contributors" }]
-keywords = ["symmetry", "point-group", "chemistry", "hessians"]
+keywords = ["symmetry", "point-group", "chemistry", "hessians", "z-matrix"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Science/Research",

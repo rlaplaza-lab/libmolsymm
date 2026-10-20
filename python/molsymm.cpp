@@ -62,7 +62,7 @@ Eigen::MatrixXd positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
 } // namespace
 
 NB_MODULE(molsymm, m) {
-  m.doc() = "Molecular point-group symmetry";
+  m.doc() = "Molecular point-group symmetry, including Z-matrix input";
 
   nb::class_<molsymm::Analysis>(m, "Analysis")
       .def_ro("point_group", &molsymm::Analysis::point_group)
