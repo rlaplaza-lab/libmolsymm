@@ -85,6 +85,20 @@ def test_xyz_anion_pi() -> None:
     assert a.order == 12
 
 
+def test_zmatrix_water() -> None:
+    angle = 104.5 * np.pi / 180.0
+    entries = [
+        (8,),
+        (1, 1, 0.957),
+        (1, 1, 0.957, 2, angle),
+    ]
+    xyz = molsymm.zmatrix_to_xyz(entries)
+    assert xyz.shape == (3, 3)
+    a = molsymm.analyze_zmatrix(entries)
+    assert a.point_group == "C2v"
+    assert a.symmetry_number == 2
+
+
 def test_xyz_c60() -> None:
     numbers, positions = load_xyz(DATA_DIR / "c60.xyz")
     a = molsymm.analyze(numbers, positions)
@@ -97,5 +111,6 @@ if __name__ == "__main__":
     test_synthetic_water()
     test_xyz_water()
     test_xyz_anion_pi()
+    test_zmatrix_water()
     test_xyz_c60()
     print("python smoke ok")

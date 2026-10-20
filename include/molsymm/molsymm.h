@@ -16,6 +16,24 @@ int molsymm_analyze(const int* atomic_numbers,
                     double primary_tol,
                     molsymm_analysis** out);
 
+/* One Z-matrix row. Indices are 1-based (0 = unused). Distances are Å, angles radians.
+   Field order matches molsymm::ZMatrixAtom. */
+typedef struct molsymm_zatom {
+  int atomic_number;
+  int bond_to;
+  int angle_to;
+  int dihedral_to;
+  double distance;
+  double angle;
+  double dihedral;
+} molsymm_zatom;
+
+int molsymm_zmatrix_to_xyz(const molsymm_zatom* atoms, int n, double* xyz_out);
+int molsymm_analyze_zmatrix(const molsymm_zatom* atoms,
+                            int n,
+                            double primary_tol,
+                            molsymm_analysis** out);
+
 void molsymm_free(molsymm_analysis* a);
 
 int molsymm_point_group(const molsymm_analysis* a, char* buf, int buflen);

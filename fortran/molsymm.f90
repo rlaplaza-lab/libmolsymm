@@ -5,7 +5,17 @@ module molsymm
   public :: ms_analyze, ms_release, ms_point_group_name, ms_symmetry_number
   public :: ms_symmetrize, ms_unique_displacements, ms_n_displacements
   public :: ms_displacement_geometry, ms_hessian_from_gradients, ms_release_displacements
-  public :: ms_last_error
+  public :: ms_last_error, ms_zatom, ms_zmatrix_to_xyz, ms_analyze_zmatrix
+
+  type, bind(c) :: ms_zatom
+    integer(c_int) :: atomic_number
+    integer(c_int) :: bond_to
+    integer(c_int) :: angle_to
+    integer(c_int) :: dihedral_to
+    real(c_double) :: distance
+    real(c_double) :: angle
+    real(c_double) :: dihedral
+  end type
 
 interface
   function molsymm_last_error() bind(c, name="molsymm_last_error")
@@ -21,6 +31,23 @@ interface
     real(c_double), value :: primary
     type(c_ptr), intent(out) :: out
     integer(c_int) :: molsymm_analyze
+  end function
+
+  function molsymm_zmatrix_to_xyz(atoms, n, xyz_out) bind(c, name="molsymm_zmatrix_to_xyz")
+    import :: c_int, c_double, ms_zatom
+    type(ms_zatom), intent(in) :: atoms(*)
+    integer(c_int), value :: n
+    real(c_double), intent(out) :: xyz_out(*)
+    integer(c_int) :: molsymm_zmatrix_to_xyz
+  end function
+
+  function molsymm_analyze_zmatrix(atoms, n, primary, out) bind(c, name="molsymm_analyze_zmatrix")
+    import :: c_int, c_double, c_ptr, ms_zatom
+    type(ms_zatom), intent(in) :: atoms(*)
+    integer(c_int), value :: n
+    real(c_double), value :: primary
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_analyze_zmatrix
   end function
 
   subroutine molsymm_free(a) bind(c, name="molsymm_free")
@@ -131,6 +158,38 @@ contains
       flat(3*(i-1)+1:3*(i-1)+3) = xyz(:, i)
     end do
     status = molsymm_analyze(atomic_numbers, flat, int(n, c_int), prim, handle)
+  end subroutine
+
+  subroutine ms_zmatrix_to_xyz(atoms, xyz, status)
+    type(ms_zatom), intent(in) :: atoms(:)
+    real(c_double), intent(out) :: xyz(:,:)  ! (3,n)
+    integer(c_int), intent(out) :: status
+    type(ms_zatom), allocatable :: packed(:)
+    real(c_double), allocatable :: flat(:)
+    integer :: n, i
+    n = size(atoms)
+    allocate(packed(n), flat(3*n))
+    packed = atoms
+    status = molsymm_zmatrix_to_xyz(packed, int(n, c_int), flat)
+    do i = 1, n
+      xyz(:, i) = flat(3*(i-1)+1:3*(i-1)+3)
+    end do
+  end subroutine
+
+  subroutine ms_analyze_zmatrix(atoms, handle, status, primary)
+    type(ms_zatom), intent(in) :: atoms(:)
+    type(c_ptr), intent(out) :: handle
+    integer(c_int), intent(out) :: status
+    real(c_double), intent(in), optional :: primary
+    type(ms_zatom), allocatable :: packed(:)
+    real(c_double) :: prim
+    integer :: n
+    prim = 1.0d-3
+    if (present(primary)) prim = primary
+    n = size(atoms)
+    allocate(packed(n))
+    packed = atoms
+    status = molsymm_analyze_zmatrix(packed, int(n, c_int), prim, handle)
   end subroutine
 
   subroutine ms_release(handle)

@@ -503,6 +503,110 @@ void test_xyz_large_rattle() {
   }
 }
 
+void expect_near(const molsymm::Vec3& got, const molsymm::Vec3& want, const std::string& msg) {
+  expect((got - want).norm() < 1e-12, msg + " |dr|=" + std::to_string((got - want).norm()));
+}
+
+template <typename Fn>
+bool throws_error(Fn&& fn) {
+  try {
+    fn();
+  } catch (const molsymm::Error&) {
+    return true;
+  } catch (const std::exception& ex) {
+    expect(false, std::string("unexpected exception: ") + ex.what());
+    return false;
+  }
+  return false;
+}
+
+void test_zmatrix() {
+  using molsymm::ZMatrixAtom;
+  const double half_pi = 0.5 * kPi;
+
+  const std::vector<ZMatrixAtom> chain = {
+      {6, 0, 0, 0, 0.0, 0.0, 0.0},
+      {1, 1, 0, 0, 1.0, 0.0, 0.0},
+      {1, 1, 2, 0, 1.0, half_pi, 0.0},
+      {1, 1, 2, 3, 2.0, half_pi, half_pi},
+  };
+  const std::vector<molsymm::Vec3> pos = molsymm::zmatrix_positions(chain);
+  expect_near(pos[0], molsymm::Vec3(0.0, 0.0, 0.0), "z-matrix atom 1 at origin");
+  expect_near(pos[1], molsymm::Vec3(0.0, 1.0, 0.0), "z-matrix atom 2 along +y");
+  expect_near(pos[2], molsymm::Vec3(1.0, 0.0, 0.0), "z-matrix atom 3 in the xy plane");
+  expect_near(pos[3], molsymm::Vec3(0.0, 0.0, -2.0), "z-matrix atom 4 dihedral");
+
+  const double water_angle = 104.5 * kPi / 180.0;
+  const std::vector<ZMatrixAtom> water = {
+      {8, 0, 0, 0, 0.0, 0.0, 0.0},
+      {1, 1, 0, 0, 0.957, 0.0, 0.0},
+      {1, 1, 2, 0, 0.957, water_angle, 0.0},
+  };
+  const molsymm::Molecule water_mol = molsymm::molecule_from_zmatrix(water);
+  expect(water_mol.atoms[0].atomic_number == 8 && water_mol.atoms[2].atomic_number == 1,
+         "z-matrix atomic numbers are kept");
+  const molsymm::Analysis water_pg = molsymm::analyze(water_mol);
+  expect(water_pg.point_group == "C2v", "water z-matrix is C2v, got " + water_pg.point_group);
+
+  const double tet = std::acos(-1.0 / 3.0);
+  const double twist = 2.0 * kPi / 3.0;
+  const std::vector<ZMatrixAtom> methane = {
+      {6, 0, 0, 0, 0.0, 0.0, 0.0},
+      {1, 1, 0, 0, 1.09, 0.0, 0.0},
+      {1, 1, 2, 0, 1.09, tet, 0.0},
+      {1, 1, 2, 3, 1.09, tet, twist},
+      {1, 1, 2, 3, 1.09, tet, -twist},
+  };
+  const molsymm::Analysis methane_pg = molsymm::analyze(molsymm::molecule_from_zmatrix(methane));
+  expect(methane_pg.point_group == "Td", "methane z-matrix is Td, got " + methane_pg.point_group);
+
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 5, 0, 0, 1.0, 0.0, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "out-of-range bond reference throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 1.0, 0.0, 0.0},
+               {1, 1, 3, 0, 1.0, 0.5 * kPi, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "forward angle reference throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 0.0, 0.0, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "zero bond length throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 1.0, 0.0, 0.0},
+               {1, 1, 2, 0, 1.0, kPi, 0.0},
+               {1, 1, 2, 3, 1.0, 0.5 * kPi, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "collinear dihedral references throw");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 1.0, 0.0, 0.0},
+               {1, 1, 2, 0, 1.0, 0.0, 0.0},
+               {1, 2, 3, 1, 1.0, 0.5 * kPi, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "zero-length bond reference throws");
+}
+
 } // namespace
 
 int main() {
@@ -513,6 +617,7 @@ int main() {
   test_xyz_corpus();
   test_xyz_slight_rattle();
   test_xyz_large_rattle();
+  test_zmatrix();
   if (g_failed) {
     std::cerr << g_failed << " failures\n";
     return 1;

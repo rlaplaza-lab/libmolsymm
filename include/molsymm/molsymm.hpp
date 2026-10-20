@@ -6,3 +6,4 @@
 #include "molsymm/masses.hpp"
 #include "molsymm/molecule.hpp"
 #include "molsymm/types.hpp"
+#include "molsymm/zmatrix.hpp"

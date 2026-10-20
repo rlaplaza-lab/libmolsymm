@@ -10,6 +10,57 @@
 
 namespace nb = nanobind;
 
+namespace {
+
+constexpr const char* kZEntryHint =
+    "z-matrix entry must be (Z), (Z, bond_to, R), (Z, bond_to, R, angle_to, angle), "
+    "or (Z, bond_to, R, angle_to, angle, dihedral_to, dihedral)";
+
+molsymm::ZMatrixAtom zatom_from_python(nb::handle entry) {
+  if (!nb::isinstance<nb::sequence>(entry) || nb::isinstance<nb::str>(entry)) {
+    throw molsymm::Error(kZEntryHint);
+  }
+  nb::sequence seq = nb::cast<nb::sequence>(entry);
+  const std::size_t n = nb::len(seq);
+  if (n != 1 && n != 3 && n != 5 && n != 7) {
+    throw molsymm::Error(kZEntryHint);
+  }
+  molsymm::ZMatrixAtom atom;
+  atom.atomic_number = nb::cast<int>(seq[0]);
+  if (n >= 3) {
+    atom.bond_to = nb::cast<int>(seq[1]);
+    atom.distance = nb::cast<double>(seq[2]);
+  }
+  if (n >= 5) {
+    atom.angle_to = nb::cast<int>(seq[3]);
+    atom.angle = nb::cast<double>(seq[4]);
+  }
+  if (n >= 7) {
+    atom.dihedral_to = nb::cast<int>(seq[5]);
+    atom.dihedral = nb::cast<double>(seq[6]);
+  }
+  return atom;
+}
+
+std::vector<molsymm::ZMatrixAtom> zrows_from_python(nb::sequence entries) {
+  std::vector<molsymm::ZMatrixAtom> rows;
+  rows.reserve(nb::len(entries));
+  for (nb::handle entry : entries) {
+    rows.push_back(zatom_from_python(entry));
+  }
+  return rows;
+}
+
+Eigen::MatrixXd positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
+  Eigen::MatrixXd xyz(static_cast<Eigen::Index>(pos.size()), 3);
+  for (std::size_t i = 0; i < pos.size(); ++i) {
+    xyz.row(static_cast<Eigen::Index>(i)) = pos[i].transpose();
+  }
+  return xyz;
+}
+
+} // namespace
+
 NB_MODULE(molsymm, m) {
   m.doc() = "Molecular point-group symmetry";
 
@@ -106,5 +157,23 @@ NB_MODULE(molsymm, m) {
       },
       nb::arg("numbers"),
       nb::arg("positions"),
+      nb::arg("primary") = 1e-3);
+
+  m.def(
+      "zmatrix_to_xyz",
+      [](nb::sequence entries) {
+        return positions_to_rows(molsymm::zmatrix_positions(zrows_from_python(entries)));
+      },
+      nb::arg("entries"));
+
+  m.def(
+      "analyze_zmatrix",
+      [](nb::sequence entries, double primary) {
+        molsymm::Tolerances tol;
+        tol.primary = primary;
+        molsymm::Molecule mol = molsymm::molecule_from_zmatrix(zrows_from_python(entries));
+        return molsymm::analyze(mol, tol);
+      },
+      nb::arg("entries"),
       nb::arg("primary") = 1e-3);
 }

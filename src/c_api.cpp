@@ -3,11 +3,31 @@
 #include "molsymm/molsymm.hpp"
 
 #include <Eigen/Dense>
+#include <cstddef>
 #include <cstdio>
 #include <cstring>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
+
+static_assert(sizeof(molsymm_zatom) == sizeof(molsymm::ZMatrixAtom),
+              "C and C++ Z-matrix rows must have the same size");
+static_assert(offsetof(molsymm_zatom, atomic_number) ==
+                  offsetof(molsymm::ZMatrixAtom, atomic_number),
+              "atomic_number offset");
+static_assert(offsetof(molsymm_zatom, bond_to) == offsetof(molsymm::ZMatrixAtom, bond_to),
+              "bond_to offset");
+static_assert(offsetof(molsymm_zatom, angle_to) == offsetof(molsymm::ZMatrixAtom, angle_to),
+              "angle_to offset");
+static_assert(offsetof(molsymm_zatom, dihedral_to) == offsetof(molsymm::ZMatrixAtom, dihedral_to),
+              "dihedral_to offset");
+static_assert(offsetof(molsymm_zatom, distance) == offsetof(molsymm::ZMatrixAtom, distance),
+              "distance offset");
+static_assert(offsetof(molsymm_zatom, angle) == offsetof(molsymm::ZMatrixAtom, angle),
+              "angle offset");
+static_assert(offsetof(molsymm_zatom, dihedral) == offsetof(molsymm::ZMatrixAtom, dihedral),
+              "dihedral offset");
 
 struct molsymm_analysis {
   molsymm::Analysis a;
@@ -36,6 +56,21 @@ int guard(F&& f) {
   }
 }
 
+std::vector<molsymm::ZMatrixAtom> zrows_from_c(const molsymm_zatom* atoms, int n) {
+  std::vector<molsymm::ZMatrixAtom> rows(static_cast<std::size_t>(n));
+  for (int i = 0; i < n; ++i) {
+    molsymm::ZMatrixAtom& row = rows[static_cast<std::size_t>(i)];
+    row.atomic_number = atoms[i].atomic_number;
+    row.bond_to = atoms[i].bond_to;
+    row.angle_to = atoms[i].angle_to;
+    row.dihedral_to = atoms[i].dihedral_to;
+    row.distance = atoms[i].distance;
+    row.angle = atoms[i].angle;
+    row.dihedral = atoms[i].dihedral;
+  }
+  return rows;
+}
+
 } // namespace
 
 extern "C" {
@@ -59,6 +94,38 @@ int molsymm_analyze(const int* atomic_numbers,
     tol.primary = primary_tol;
     auto* handle = new molsymm_analysis;
     handle->a = molsymm::analyze(mol, tol);
+    *out = handle;
+  });
+}
+
+int molsymm_zmatrix_to_xyz(const molsymm_zatom* atoms, int n, double* xyz_out) {
+  return guard([&] {
+    if (!atoms || !xyz_out || n <= 0) {
+      throw molsymm::Error("invalid arguments");
+    }
+    const std::vector<molsymm::Vec3> pos = molsymm::zmatrix_positions(zrows_from_c(atoms, n));
+    for (int i = 0; i < n; ++i) {
+      xyz_out[3 * i] = pos[static_cast<std::size_t>(i)].x();
+      xyz_out[3 * i + 1] = pos[static_cast<std::size_t>(i)].y();
+      xyz_out[3 * i + 2] = pos[static_cast<std::size_t>(i)].z();
+    }
+  });
+}
+
+int molsymm_analyze_zmatrix(const molsymm_zatom* atoms,
+                            int n,
+                            double primary_tol,
+                            molsymm_analysis** out) {
+  return guard([&] {
+    if (!atoms || !out || n <= 0) {
+      throw molsymm::Error("invalid arguments");
+    }
+    molsymm::Molecule mol = molsymm::molecule_from_zmatrix(zrows_from_c(atoms, n));
+    molsymm::Tolerances tol;
+    tol.primary = primary_tol;
+    molsymm::Analysis analysis = molsymm::analyze(mol, tol);
+    auto* handle = new molsymm_analysis;
+    handle->a = std::move(analysis);
     *out = handle;
   });
 }
