@@ -174,6 +174,18 @@ CharacterTable table_td() {
   return ct;
 }
 
+CharacterTable table_d2d() {
+  CharacterTable ct;
+  ct.class_labels = {"E", "2S4", "C2", "2C2'", "2σd"};
+  ct.class_sizes = {1, 2, 1, 2, 2};
+  add_irrep(ct, "A1", 1, {1, 1, 1, 1, 1});
+  add_irrep(ct, "A2", 1, {1, 1, 1, -1, -1});
+  add_irrep(ct, "B1", 1, {1, -1, 1, 1, -1});
+  add_irrep(ct, "B2", 1, {1, -1, 1, -1, 1});
+  add_irrep(ct, "E", 2, {2, 0, -2, 0, 0});
+  return ct;
+}
+
 CharacterTable table_oh() {
   CharacterTable ct;
   ct.class_labels = {"E", "8C3", "6C2", "6C4", "3C2", "i", "6S4", "8S6", "3σh", "6σd"};
@@ -406,6 +418,19 @@ int abstract_class_index(const std::string& fam,
     if (rep.kind == OperationKind::Reflection) {
       return 4;
     }
+  } else if (fam == "Dnd") {
+    if (rep.kind == OperationKind::Identity) {
+      return 0;
+    }
+    if (rep.kind == OperationKind::ImproperRotation && rep.order == 4) {
+      return 1;
+    }
+    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+      return (rep.axis.norm() > 1e-12 && std::abs(rep.axis.normalized().z()) > 0.9) ? 2 : 3;
+    }
+    if (rep.kind == OperationKind::Reflection) {
+      return 4;
+    }
   } else if (fam == "T") {
     if (rep.kind == OperationKind::Identity) {
       return 0;
@@ -557,7 +582,15 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
     return ct;
   } else if (fam == "Cnv" || fam == "Dn") {
     ct = table_cnv(nn);
-  } else if (fam == "Dnh" || fam == "Dnd") {
+  } else if (fam == "Dnd") {
+    if (nn % 2 == 1) {
+      ct = double_irreps(table_cnv(nn), "g", "u");
+    } else if (nn == 2) {
+      ct = table_d2d();
+    } else {
+      ct = table_cnv(nn);
+    }
+  } else if (fam == "Dnh") {
     ct = double_irreps(table_cnv(nn), "g", "u");
   } else if (fam == "Cn" || fam == "Sn") {
     ct = table_cn(nn);
@@ -597,7 +630,7 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
   const std::string& f = fam;
 
   if (f == "C1" || f == "Cs" || f == "Ci" || f == "Td" || f == "Oh" || f == "T" || f == "Th" ||
-      f == "O" || f == "I" || f == "Ih") {
+      f == "O" || f == "I" || f == "Ih" || (f == "Dnd" && nn == 2)) {
     for (int ic = 0; ic < nclass; ++ic) {
       const int ri = rep_idx[static_cast<std::size_t>(ic)];
       if (ri < 0) {

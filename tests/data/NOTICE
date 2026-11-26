@@ -1,11 +1,35 @@
-The XYZ geometries in this directory come from two sources.
+Test geometries and expectations in this directory.
 
 ---
 
-From https://github.com/aligfellow/xyzgraph/tree/main/examples
-(water.xyz, anion-pi.xyz, 22paracyclophane.xyz, E_2butene.xyz, pt_complex.xyz):
+manifest.tsv — single source of truth for CI corpus expectations
+(Schoenflies label, group order, symmetry number, analysis tolerance).
 
-MIT License
+Rows marked "agree" matched both PySCF and Psi4 when the local (gitignored)
+helpers in tests/make_corpus.py were last run, and every molsymm operation
+was verified (distinct, orthogonal, closed, atom-permuting). Rows marked
+"operations" keep a higher molsymm assignment only when those operation
+checks pass and each present oracle label is a real subgroup of the assigned
+group. Psi4 and PySCF are developer-only checks; they are not CTest targets
+or library dependencies.
+
+---
+
+iqmol/ — fragment XYZ files from IQmol by Andrew Gilbert:
+
+  https://github.com/nutjunkie/IQmol/tree/master/share/fragments
+
+Pinned commit: a3a60efabfb95f67bee5e3cb4f697d591a4e9b5f
+
+Distributed under the GNU General Public License v3.0. The full license text
+is in iqmol/LICENSE (copied from upstream). Vendored as test inputs only; not
+linked into the library.
+
+---
+
+anion-pi.xyz — from https://github.com/aligfellow/xyzgraph/tree/main/examples
+
+Kept because IQmol does not provide a C6v example. MIT License:
 
   Copyright (c) 2025 Alister S. Goodfellow
 
@@ -26,14 +50,3 @@ MIT License
   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
-
----
-
-From https://github.com/nutjunkie/IQmol/tree/master/share/fragments/Molecules
-(c60.xyz, cubane.xyz, adamantane.xyz, coronene.xyz, corannulene.xyz,
-ferrocene.xyz, cyclopropane.xyz, octahedral.xyz):
-
-These fragment geometries are from IQmol by Andrew Gilbert and are distributed
-under the GNU General Public License v3.0. See
-https://github.com/nutjunkie/IQmol/blob/master/LICENSE for the full text.
-They are vendored here as test inputs only and are not linked into the library.

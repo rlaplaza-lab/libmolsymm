@@ -4,6 +4,7 @@
 #include "molsymm/error.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <utility>
 
 namespace molsymm::detail {
@@ -108,7 +109,9 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       }
     } else if (name.back() == 'h') {
       add("Cs");
-      add("Ci");
+      if (n % 2 == 0) {
+        add("Ci");
+      }
       if (n >= 2) {
         add(cnh(n));
       }
@@ -121,7 +124,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
   if (!name.empty() && name[0] == 'S' && n >= 2) {
     add(cn(n / 2));
     add("S" + std::to_string(n));
-    if (n % 4 == 0) {
+    if (n % 4 == 2) {
       add("C" + std::to_string(n / 2) + "h");
     }
     return s;
@@ -133,13 +136,19 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
         add(dn(k));
       }
     }
+    add("C2");
     if (name.back() == 'h') {
       add("Cs");
-      add("Ci");
       add(cnh(n));
       add(cnv(n));
       add(dn(n));
       add(dnh(n));
+      add("C2v");
+      if (n % 2 == 0) {
+        add("Ci");
+        add("C2h");
+        add("D2h");
+      }
       for (int k = 1; k < n; ++k) {
         if (n % k == 0) {
           add(dnh(k));
@@ -152,6 +161,13 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       add(dn(n));
       add(dnd(n));
       add("S" + std::to_string(2 * n));
+      add("C2v");
+      if (n % 2 == 1) {
+        add("Ci");
+        add("C2h");
+      } else {
+        add("D2d");
+      }
     } else {
       add(dn(n));
     }
@@ -161,7 +177,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
   return s;
 }
 
-int expected_group_order(const std::string& name, int n) {
+static int expected_group_order(const std::string& name, int n) {
   if (name == "C1") {
     return 1;
   }
@@ -233,6 +249,26 @@ void Analysis::select_subgroup(const std::string& name) {
 
   const int n = detail::parse_n(name);
 
+  auto axis_on_z = [](const Operation& op) {
+    return op.axis.norm() > 1e-12 && std::abs(op.axis.normalized().dot(Vec3::UnitZ())) > 0.9;
+  };
+  auto angle_in_cn = [](const Operation& op, int cn) {
+    if (cn <= 1 || op.kind != OperationKind::ProperRotation) {
+      return false;
+    }
+    if (op.power > 0 && op.order > 0 && (op.order % cn == 0)) {
+      return (op.power % (op.order / cn)) == 0;
+    }
+    const double c = std::clamp((op.matrix.trace() - 1.0) * 0.5, -1.0, 1.0);
+    const double ang = std::acos(c);
+    for (int k = 1; k < cn; ++k) {
+      if (std::abs(ang - 2.0 * detail::kPi * k / cn) < 1e-3) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   std::vector<Operation> kept;
   for (const Operation& op : operations) {
     if (op.kind == OperationKind::Identity) {
@@ -254,20 +290,29 @@ void Analysis::select_subgroup(const std::string& name) {
       kept.push_back(op);
       continue;
     }
+    if (!name.empty() && name[0] == 'S' && n >= 2) {
+      const bool keep_sn =
+          (op.kind == OperationKind::ImproperRotation && axis_on_z(op) &&
+           (op.order == n || (op.order > 0 && n % op.order == 0))) ||
+          (op.kind == OperationKind::ProperRotation && axis_on_z(op) && angle_in_cn(op, n / 2)) ||
+          (n % 2 == 0 && op.kind == OperationKind::Inversion && (n / 2) % 2 == 1);
+      if (keep_sn) {
+        kept.push_back(op);
+      }
+      continue;
+    }
     if (!name.empty() && name[0] == 'C' && name.back() != 's' && name.back() != 'i') {
-      if (op.kind == OperationKind::ProperRotation && n > 0 && op.order <= n &&
-          (n % op.order == 0)) {
-        if (std::abs(op.axis.normalized().dot(Vec3::UnitZ())) > 0.9) {
-          kept.push_back(op);
-        }
+      if (op.kind == OperationKind::ProperRotation && n > 0 && axis_on_z(op) &&
+          angle_in_cn(op, n)) {
+        kept.push_back(op);
       }
       if (name.back() == 'v' && op.kind == OperationKind::Reflection &&
-          op.plane == PlaneKind::Vertical) {
+          (op.plane == PlaneKind::Vertical || op.plane == PlaneKind::Dihedral)) {
         kept.push_back(op);
       }
       if (name.back() == 'h' &&
           ((op.kind == OperationKind::Reflection && op.plane == PlaneKind::Horizontal) ||
-           op.kind == OperationKind::Inversion)) {
+           (op.kind == OperationKind::Inversion && n % 2 == 0))) {
         kept.push_back(op);
       }
     }
@@ -280,7 +325,8 @@ void Analysis::select_subgroup(const std::string& name) {
         kept.push_back(op);
       }
       if (name.back() == 'd' &&
-          (op.kind == OperationKind::Reflection || op.kind == OperationKind::ImproperRotation)) {
+          (op.kind == OperationKind::Reflection || op.kind == OperationKind::ImproperRotation ||
+           (op.kind == OperationKind::Inversion && n % 2 == 1))) {
         kept.push_back(op);
       }
     }

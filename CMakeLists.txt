@@ -62,10 +62,13 @@ target_include_directories(molsymm
     $<INSTALL_INTERFACE:include>
 )
 target_link_libraries(molsymm PUBLIC Eigen3::Eigen)
-# Treat Eigen headers as system includes so -Werror does not fire inside them.
+# Eigen as system includes so -Werror does not fire inside them (BUILD_INTERFACE:
+# FetchContent Eigen lives under the build tree).
 get_target_property(_molsymm_eigen_inc Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
 if(_molsymm_eigen_inc)
-  target_include_directories(molsymm SYSTEM PUBLIC ${_molsymm_eigen_inc})
+  target_include_directories(molsymm SYSTEM PUBLIC
+    $<BUILD_INTERFACE:${_molsymm_eigen_inc}>
+  )
 endif()
 target_compile_features(molsymm PUBLIC cxx_std_20)
 # Needed when a static core is linked into the Python extension module.
@@ -138,6 +141,8 @@ if(MOLSYMM_BUILD_TESTS)
     MOLSYMM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
   )
   add_test(NAME molsymm_tests COMMAND molsymm_tests)
+  # Matches CI ctest --timeout; corpus is ~seconds locally, leave headroom for ASan.
+  set_tests_properties(molsymm_tests PROPERTIES TIMEOUT 180)
 endif()
 
 if(NOT DEFINED SKBUILD)
@@ -177,6 +182,7 @@ if(MOLSYMM_BUILD_PYTHON)
     )
     set_tests_properties(molsymm_python_test PROPERTIES
       ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:molsymm_py>;MOLSYMM_TEST_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/data;LD_PRELOAD=${_molsymm_libstdcxx_real}"
+      TIMEOUT 180
     )
   endif()
   if(DEFINED SKBUILD)
@@ -198,5 +204,9 @@ if(MOLSYMM_BUILD_FORTRAN)
     add_executable(molsymm_fortran_test tests/test_fortran.f90)
     target_link_libraries(molsymm_fortran_test PRIVATE molsymm_fortran)
     add_test(NAME molsymm_fortran_test COMMAND molsymm_fortran_test)
+    set_tests_properties(molsymm_fortran_test PROPERTIES
+      ENVIRONMENT "MOLSYMM_TEST_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+      TIMEOUT 180
+    )
   endif()
 endif()

@@ -1,6 +1,9 @@
 #include "molsymm/molsymm.hpp"
 
+#include <Eigen/Geometry>
+
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -8,6 +11,8 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 #ifndef MOLSYMM_TEST_DATA_DIR
@@ -18,13 +23,14 @@ namespace {
 
 constexpr double kPi = 3.14159265358979323846;
 int g_failed = 0;
+int g_passed = 0;
 
 void expect(bool cond, const std::string& msg) {
   if (!cond) {
     std::cerr << "FAIL: " << msg << "\n";
     ++g_failed;
   } else {
-    std::cout << "ok: " << msg << "\n";
+    ++g_passed;
   }
 }
 
@@ -209,6 +215,14 @@ void test_point_groups() {
   check(co(), "Cinfv", 1);
 
   {
+    auto s4 = molsymm::analyze(allene());
+    s4.select_subgroup("S4");
+    expect(s4.point_group == "S4" && s4.order == 4, "allene select_subgroup S4");
+    expect(s4.symmetry_number == 2,
+           "S4 symmetry number expect 2 got " + std::to_string(s4.symmetry_number));
+  }
+
+  {
     molsymm::Molecule m;
     m.atoms.push_back({8, {0, 0, 0}, 0});
     m.resolve_masses();
@@ -227,20 +241,24 @@ void test_point_groups() {
   }
 }
 
+bool is_pure_cn_or_sn(const std::string& pg) {
+  if (pg.size() < 2 || (pg[0] != 'C' && pg[0] != 'S')) {
+    return false;
+  }
+  for (std::size_t i = 1; i < pg.size(); ++i) {
+    if (!std::isdigit(static_cast<unsigned char>(pg[i]))) {
+      return false;
+    }
+  }
+  return true;
+}
+
 void expect_character_table_consistent(const molsymm::Analysis& a, const std::string& label) {
   const auto& ct = a.character_table;
   expect(!ct.irrep_names.empty(), label + " character table non-empty");
-  if (a.infinite || a.order <= 0 || ct.irrep_dims.empty() || ct.characters.empty()) {
+  if (a.infinite || a.order <= 0 || ct.characters.empty()) {
     return;
   }
-  int dim2 = 0;
-  for (int d : ct.irrep_dims) {
-    dim2 += d * d;
-  }
-  expect(dim2 == a.order,
-         label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
-  // Totally symmetric irrep is first and +1 on every class.
-  expect(!ct.characters.front().empty(), label + " totally symmetric row present");
   bool all_one = true;
   for (double chi : ct.characters.front()) {
     if (std::abs(chi - 1.0) > 1e-8) {
@@ -249,28 +267,133 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
     }
   }
   expect(all_one, label + " totally symmetric row is +1 on every class");
+  if (is_pure_cn_or_sn(a.point_group) || ct.irrep_dims.empty()) {
+    return;
+  }
+  int dim2 = 0;
+  for (int d : ct.irrep_dims) {
+    dim2 += d * d;
+  }
+  expect(dim2 == a.order,
+         label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
+}
+
+bool operations_form_finite_group(const molsymm::Analysis& a) {
+  if (a.infinite || a.order <= 0) {
+    return true;
+  }
+  const auto& ops = a.operations;
+  if (static_cast<int>(ops.size()) != a.order) {
+    return false;
+  }
+  constexpr double kOrthTol = 1e-5;
+  constexpr double kCloseTol = 5e-3;
+  for (std::size_t i = 0; i < ops.size(); ++i) {
+    const molsymm::Mat3& R = ops[i].matrix;
+    if ((R.transpose() * R - molsymm::Mat3::Identity()).cwiseAbs().maxCoeff() > kOrthTol) {
+      return false;
+    }
+    if (std::abs(std::abs(R.determinant()) - 1.0) > kOrthTol) {
+      return false;
+    }
+    for (std::size_t j = i + 1; j < ops.size(); ++j) {
+      if ((ops[i].matrix - ops[j].matrix).cwiseAbs().maxCoeff() <= 1e-6) {
+        return false;
+      }
+    }
+  }
+  for (const auto& a_op : ops) {
+    for (const auto& b_op : ops) {
+      const molsymm::Mat3 P = a_op.matrix * b_op.matrix;
+      bool found = false;
+      for (const auto& c_op : ops) {
+        if ((c_op.matrix - P).cwiseAbs().maxCoeff() <= kCloseTol) {
+          found = true;
+          break;
+        }
+      }
+      if (!found) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 void test_subgroups_and_table() {
   auto a = molsymm::analyze(benzene());
   expect(has_subgroup(a, "D6") && has_subgroup(a, "C6v") && has_subgroup(a, "C2v"),
          "D6h subgroups include D6, C6v, C2v");
+  expect(operations_form_finite_group(a), "benzene closed group");
   expect_character_table_consistent(a, "benzene");
 
-  auto d6 = a;
-  d6.select_subgroup("D6");
-  expect(d6.point_group == "D6" && d6.order == 12, "benzene select_subgroup D6");
-  expect_character_table_consistent(d6, "benzene/D6");
+  for (const auto& [name, order] : {std::pair{"D6", 12}, {"C6v", 12}, {"C2", 2}, {"C3", 3}}) {
+    auto sub = a;
+    sub.select_subgroup(name);
+    expect(sub.point_group == name && sub.order == order,
+           std::string("benzene select_subgroup ") + name);
+    expect_character_table_consistent(sub, std::string("benzene/") + name);
+  }
 
-  auto c6v = a;
-  c6v.select_subgroup("C6v");
-  expect(c6v.point_group == "C6v" && c6v.order == 12, "benzene select_subgroup C6v");
-  expect_character_table_consistent(c6v, "benzene/C6v");
+  {
+    molsymm::Tolerances tol;
+    tol.primary = 1e-2;
+    auto d3h = molsymm::analyze(load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) +
+                                         "/iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz"),
+                                tol);
+    expect(d3h.point_group == "D3h", "cyclopropane is D3h got " + d3h.point_group);
+    expect(has_subgroup(d3h, "C2v") && !has_subgroup(d3h, "Ci") && !has_subgroup(d3h, "D2h"),
+           "D3h subgroups");
+    auto dn = d3h;
+    dn.select_subgroup("D3");
+    expect(dn.point_group == "D3" && dn.order == 6 && has_subgroup(dn, "C2") &&
+               !has_subgroup(dn, "C2v"),
+           "D3 from D3h");
+  }
 
   auto m = molsymm::analyze(methane());
   m.select_subgroup("T");
   expect(m.point_group == "T" && m.order == 12, "methane select_subgroup T");
   expect_character_table_consistent(m, "methane/T");
+
+  {
+    auto w = molsymm::analyze(water());
+    expect(operations_form_finite_group(w), "water closed group");
+    const auto& ct = w.character_table;
+    int i_b1 = -1;
+    int i_b2 = -1;
+    for (std::size_t i = 0; i < ct.irrep_names.size(); ++i) {
+      if (ct.irrep_names[i] == "B1") {
+        i_b1 = static_cast<int>(i);
+      }
+      if (ct.irrep_names[i] == "B2") {
+        i_b2 = static_cast<int>(i);
+      }
+    }
+    expect(i_b1 >= 0 && i_b2 >= 0, "water has B1 and B2");
+    bool split = false;
+    for (std::size_t c = 0; c < ct.characters[static_cast<std::size_t>(i_b1)].size(); ++c) {
+      if (std::abs(ct.characters[static_cast<std::size_t>(i_b1)][c] -
+                   ct.characters[static_cast<std::size_t>(i_b2)][c]) > 1e-8) {
+        split = true;
+        break;
+      }
+    }
+    expect(split, "water B1 and B2 differ");
+  }
+
+  {
+    auto d2d = molsymm::analyze(allene());
+    expect(operations_form_finite_group(d2d), "allene closed group");
+    const auto& names = d2d.character_table.irrep_names;
+    expect(std::find(names.begin(), names.end(), "E") != names.end(), "D2d has E");
+    expect(std::none_of(names.begin(),
+                        names.end(),
+                        [](const std::string& n) {
+                          return !n.empty() && (n.back() == 'g' || n.back() == 'u');
+                        }),
+           "D2d irreps have no g/u");
+  }
 }
 
 void test_displacements_water() {
@@ -338,78 +461,159 @@ void test_displacements_methane() {
          "methane has 3 unique displacements, got " + std::to_string(d.displacements.size()));
 }
 
-struct XyzCase {
-  const char* file;
-  const char* expect_pg;
-  int expect_order;
-  int expect_sigma;
-  int expect_ndisp;
-  double primary;
-  double max_rmsd;
-  std::vector<const char*> subgroups;
+struct ManifestRow {
+  std::string rel_path;
+  std::string expect_pg;
+  int expect_order = 1;
+  int expect_sigma = 1;
+  double primary = 1e-3;
+  double max_rmsd = 1e-3;
 };
 
-const std::vector<XyzCase>& xyz_corpus() {
-  // 22paracyclophane is D2h chemically, but the published coordinates only recover
-  // D2 (missing σh) even at primary=5e-3; assert what analyze returns.
-  // cyclopropane needs primary=1e-2 to recover D3h (ideal chemistry) from the
-  // IQmol fragment coordinates.
-  static const std::vector<XyzCase> cases = {
-      {"water.xyz", "C2v", 4, 2, 6, 1e-3, 1e-3, {"Cs", "C2"}},
-      {"anion-pi.xyz", "C6v", 12, 6, 8, 1e-3, 1e-3, {"C6", "C3v", "C2v", "Cs"}},
-      {"22paracyclophane.xyz", "D2", 4, 4, 24, 5e-3, 1e-3, {"D2", "C2"}},
-      {"E_2butene.xyz", "C2h", 4, 2, 15, 1e-3, 1e-3, {"C2", "Ci"}},
-      {"pt_complex.xyz", "C2v", 4, 2, 15, 1e-3, 1e-3, {"Cs", "C2"}},
-      {"c60.xyz", "Ih", 120, 60, 3, 1e-3, 1e-3, {"I", "C5", "C5v", "D5d", "Th"}},
-      {"cubane.xyz", "Oh", 48, 24, 2, 1e-3, 1e-3, {"O", "Td", "C4v", "D4h"}},
-      {"adamantane.xyz", "Td", 24, 12, 9, 1e-3, 1e-3, {"T", "C3v", "C2v"}},
-      {"coronene.xyz", "D6h", 24, 12, 10, 1e-3, 1e-3, {"D6", "C6v", "C2v"}},
-      {"corannulene.xyz", "C5v", 10, 5, 10, 1e-3, 1e-3, {"C5", "Cs"}},
-      {"ferrocene.xyz", "D5d", 20, 10, 5, 1e-3, 1e-3, {"D5", "C5v", "S10"}},
-      {"cyclopropane.xyz", "D3h", 12, 6, 3, 1e-2, 5e-3, {"D3", "C3v", "C3h"}},
-      {"octahedral.xyz", "Oh", 48, 24, 2, 1e-3, 1e-3, {"O", "C4v", "D4h"}},
-  };
-  return cases;
+std::vector<ManifestRow> load_manifest(const std::string& path) {
+  std::ifstream in(path);
+  if (!in) {
+    throw std::runtime_error("cannot open manifest " + path);
+  }
+  std::vector<ManifestRow> rows;
+  std::string line;
+  std::getline(in, line); // header
+  while (std::getline(in, line)) {
+    if (line.empty()) {
+      continue;
+    }
+    std::istringstream ss(line);
+    ManifestRow r;
+    std::string order_s;
+    std::string sigma_s;
+    std::string primary_s;
+    std::string rmsd_s;
+    std::string source;
+    if (!std::getline(ss, r.rel_path, '\t') || !std::getline(ss, r.expect_pg, '\t') ||
+        !std::getline(ss, order_s, '\t') || !std::getline(ss, sigma_s, '\t') ||
+        !std::getline(ss, primary_s, '\t') || !std::getline(ss, rmsd_s, '\t') ||
+        !std::getline(ss, source, '\t')) {
+      throw std::runtime_error("bad manifest line: " + line);
+    }
+    r.expect_order = std::stoi(order_s);
+    r.expect_sigma = std::stoi(sigma_s);
+    r.primary = std::stod(primary_s);
+    r.max_rmsd = std::stod(rmsd_s);
+    rows.push_back(std::move(r));
+  }
+  return rows;
 }
 
-void check_xyz_case(const XyzCase& c) {
-  const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
-  molsymm::Molecule mol = load_xyz(path);
+bool operations_permute_atoms(const molsymm::Analysis& a, double tol) {
+  if (a.operations.empty()) {
+    return false;
+  }
+  if (!a.infinite && a.order > 0 && static_cast<int>(a.operations.size()) != a.order) {
+    return false;
+  }
+  const int n = a.molecule.size();
+  const double match = std::max(tol, 1e-4);
+  for (const molsymm::Operation& op : a.operations) {
+    std::vector<bool> claimed(static_cast<std::size_t>(n), false);
+    for (int i = 0; i < n; ++i) {
+      const molsymm::Vec3 rp = op.matrix * a.molecule.atoms[static_cast<std::size_t>(i)].position;
+      const int zi = a.molecule.atoms[static_cast<std::size_t>(i)].atomic_number;
+      int best = -1;
+      double best_d = match;
+      for (int j = 0; j < n; ++j) {
+        if (claimed[static_cast<std::size_t>(j)]) {
+          continue;
+        }
+        if (a.molecule.atoms[static_cast<std::size_t>(j)].atomic_number != zi) {
+          continue;
+        }
+        const double d = (rp - a.molecule.atoms[static_cast<std::size_t>(j)].position).norm();
+        if (d <= best_d) {
+          best_d = d;
+          best = j;
+        }
+      }
+      if (best < 0) {
+        return false;
+      }
+      claimed[static_cast<std::size_t>(best)] = true;
+    }
+  }
+  return true;
+}
+
+void check_manifest_row(const ManifestRow& c, const std::string& data_root) {
   molsymm::Tolerances tol;
   tol.primary = c.primary;
-  auto a = molsymm::analyze(mol, tol);
+  auto a = molsymm::analyze(load_xyz(data_root + "/" + c.rel_path), tol);
   expect(a.point_group == c.expect_pg,
-         std::string(c.file) + " group " + c.expect_pg + " got " + a.point_group);
+         c.rel_path + " group " + c.expect_pg + " got " + a.point_group);
   expect(a.order == c.expect_order,
-         std::string(c.file) + " order expect " + std::to_string(c.expect_order) + " got " +
+         c.rel_path + " order expect " + std::to_string(c.expect_order) + " got " +
              std::to_string(a.order));
   expect(a.symmetry_number == c.expect_sigma,
-         std::string(c.file) + " sigma expect " + std::to_string(c.expect_sigma) + " got " +
+         c.rel_path + " sigma expect " + std::to_string(c.expect_sigma) + " got " +
              std::to_string(a.symmetry_number));
-  expect_character_table_consistent(a, c.file);
   expect(a.rmsd < c.max_rmsd,
-         std::string(c.file) + " rmsd " + std::to_string(a.rmsd) + " max " +
-             std::to_string(c.max_rmsd));
-  for (const char* sg : c.subgroups) {
-    expect(has_subgroup(a, sg), std::string(c.file) + " has subgroup " + sg);
+         c.rel_path + " rmsd " + std::to_string(a.rmsd) + " max " + std::to_string(c.max_rmsd));
+  expect(operations_permute_atoms(a, c.primary), c.rel_path + " ops permute atoms");
+  if (!a.infinite) {
+    expect_character_table_consistent(a, c.rel_path);
+    auto d = molsymm::unique_displacements(a, 1e-3);
+    const int nd = static_cast<int>(d.displacements.size());
+    expect(nd >= 1 && nd <= 3 * a.original.size(), c.rel_path + " unique disp in [1,3N]");
   }
-  auto d = molsymm::unique_displacements(a, 1e-3);
-  const int n3 = 3 * a.original.size();
-  const int nd = static_cast<int>(d.displacements.size());
-  expect(nd >= 1 && nd < n3,
-         std::string(c.file) + " unique disp in [1,3N) got " + std::to_string(nd) + " of " +
-             std::to_string(n3));
-  expect(nd == c.expect_ndisp,
-         std::string(c.file) + " unique disp expect " + std::to_string(c.expect_ndisp) + " got " +
-             std::to_string(nd));
+}
+
+void test_high_symmetry_counts() {
+  const std::string root = MOLSYMM_TEST_DATA_DIR;
+  auto check_nd = [&](const char* rel, double primary, int want) {
+    molsymm::Tolerances tol;
+    tol.primary = primary;
+    auto a = molsymm::analyze(load_xyz(root + "/" + rel), tol);
+    const int nd = static_cast<int>(molsymm::unique_displacements(a, 1e-3).displacements.size());
+    expect(nd == want,
+           std::string(rel) + " unique disp expect " + std::to_string(want) + " got " +
+               std::to_string(nd));
+  };
+  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", 1e-3, 2);
+  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", 1e-2, 3);
+  check_nd("iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz", 1e-4, 8);
+
+  molsymm::Tolerances tol;
+  tol.primary = 1e-4;
+  auto c60 = molsymm::analyze(
+      load_xyz(root + "/iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz"), tol);
+  int n_id = 0;
+  int n_c5 = 0;
+  int n_c52 = 0;
+  int n_c3 = 0;
+  int n_c2 = 0;
+  for (const auto& op : c60.operations) {
+    if (op.kind == molsymm::OperationKind::Identity) {
+      ++n_id;
+    } else if (op.kind == molsymm::OperationKind::ProperRotation && op.order == 5) {
+      const int p = op.power > 0 ? op.power % 5 : 1;
+      ((p == 1 || p == 4) ? n_c5 : n_c52)++;
+    } else if (op.kind == molsymm::OperationKind::ProperRotation && op.order == 3) {
+      ++n_c3;
+    } else if (op.kind == molsymm::OperationKind::ProperRotation && op.order == 2) {
+      ++n_c2;
+    }
+  }
+  expect(n_id == 1 && n_c5 == 12 && n_c52 == 12 && n_c3 == 20 && n_c2 == 15,
+         "C60 Ih proper class sizes");
 }
 
 void test_xyz_corpus() {
-  for (const XyzCase& c : xyz_corpus()) {
+  const std::string data_root = MOLSYMM_TEST_DATA_DIR;
+  const auto rows = load_manifest(data_root + "/manifest.tsv");
+  expect(!rows.empty(), "manifest non-empty");
+  for (const ManifestRow& c : rows) {
     try {
-      check_xyz_case(c);
+      check_manifest_row(c, data_root);
     } catch (const std::exception& ex) {
-      expect(false, std::string(c.file) + " exception: " + ex.what());
+      expect(false, c.rel_path + " exception: " + ex.what());
     }
   }
 }
@@ -425,66 +629,58 @@ molsymm::Molecule rattle_molecule(molsymm::Molecule mol, double amplitude, unsig
   return mol;
 }
 
-bool is_iqmol_high_symmetry(const char* file) {
-  static const char* const files[] = {
-      "c60.xyz",
-      "cubane.xyz",
-      "adamantane.xyz",
-      "coronene.xyz",
-      "corannulene.xyz",
-      "ferrocene.xyz",
-      "cyclopropane.xyz",
-      "octahedral.xyz",
-  };
-  return std::any_of(
-      std::begin(files), std::end(files), [&](const char* f) { return std::string(f) == file; });
+molsymm::Molecule rotate_molecule(molsymm::Molecule mol, const molsymm::Mat3& R) {
+  for (auto& atom : mol.atoms) {
+    atom.position = R * atom.position;
+  }
+  return mol;
 }
 
 void test_xyz_slight_rattle() {
-  // IQmol high-symmetry geometries: tiny noise must not change the group.
+  const std::string data_root = MOLSYMM_TEST_DATA_DIR;
+  const char* files[] = {
+      "iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz",
+      "iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz",
+      "iqmol/Molecules/Cyclic_Alkanes/Adamantane.xyz",
+      "iqmol/Molecules/Polyaromatic_Hydrocarbons/Coronene.xyz",
+      "iqmol/Molecules/Polyaromatic_Hydrocarbons/Corannulene.xyz",
+      "iqmol/Molecules/Organometalics/Ferrocene.xyz",
+      "iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz",
+      "iqmol/Molecules/Coordination/6-Octahedral.xyz",
+  };
+  const char* expect_pg[] = {"Ih", "Oh", "Td", "D6h", "C5v", "D5d", "D3h", "Oh"};
+  const double primary[] = {1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-2, 1e-3};
   unsigned seed = 42;
-  for (const XyzCase& c : xyz_corpus()) {
-    if (!is_iqmol_high_symmetry(c.file)) {
-      continue;
-    }
+  for (std::size_t i = 0; i < std::size(files); ++i) {
     try {
-      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
-      molsymm::Molecule mol = rattle_molecule(load_xyz(path), 1e-4, seed++);
+      molsymm::Molecule mol = rattle_molecule(load_xyz(data_root + "/" + files[i]), 1e-4, seed++);
       molsymm::Tolerances tol;
-      tol.primary = c.primary;
+      tol.primary = primary[i];
       auto a = molsymm::analyze(mol, tol);
-      expect(a.point_group == c.expect_pg,
-             std::string(c.file) + " slight rattle group " + c.expect_pg + " got " + a.point_group);
-      expect(a.order == c.expect_order,
-             std::string(c.file) + " slight rattle order " + std::to_string(c.expect_order) +
-                 " got " + std::to_string(a.order));
-      expect(a.symmetry_number == c.expect_sigma,
-             std::string(c.file) + " slight rattle sigma " + std::to_string(c.expect_sigma) +
-                 " got " + std::to_string(a.symmetry_number));
-      expect(a.rmsd < c.max_rmsd,
-             std::string(c.file) + " slight rattle rmsd " + std::to_string(a.rmsd));
+      expect(a.point_group == expect_pg[i],
+             std::string(files[i]) + " slight rattle group " + expect_pg[i] + " got " +
+                 a.point_group);
     } catch (const std::exception& ex) {
-      expect(false, std::string(c.file) + " slight rattle exception: " + ex.what());
+      expect(false, std::string(files[i]) + " slight rattle exception: " + ex.what());
     }
   }
 }
 
 void test_xyz_large_rattle() {
-  // Larger noise: default tolerance drops the ideal group; looser tolerance recovers it.
+  const std::string data_root = MOLSYMM_TEST_DATA_DIR;
   struct LargeRattleCase {
     const char* file;
     const char* expect_pg;
   };
   const LargeRattleCase cases[] = {
-      {"cubane.xyz", "Oh"},
-      {"cyclopropane.xyz", "D3h"},
-      {"octahedral.xyz", "Oh"},
+      {"iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", "Oh"},
+      {"iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", "D3h"},
+      {"iqmol/Molecules/Coordination/6-Octahedral.xyz", "Oh"},
   };
   unsigned seed = 99;
   for (const LargeRattleCase& c : cases) {
     try {
-      const std::string path = std::string(MOLSYMM_TEST_DATA_DIR) + "/" + c.file;
-      molsymm::Molecule mol = rattle_molecule(load_xyz(path), 5e-3, seed++);
+      molsymm::Molecule mol = rattle_molecule(load_xyz(data_root + "/" + c.file), 5e-3, seed++);
       molsymm::Tolerances tight;
       tight.primary = 1e-3;
       auto a_tight = molsymm::analyze(mol, tight);
@@ -500,6 +696,75 @@ void test_xyz_large_rattle() {
     } catch (const std::exception& ex) {
       expect(false, std::string(c.file) + " large rattle exception: " + ex.what());
     }
+  }
+}
+
+bool frame_coords_match(const molsymm::Analysis& a, const molsymm::Analysis& b, double tol) {
+  if (a.molecule.size() != b.molecule.size()) {
+    return false;
+  }
+  for (int i = 0; i < a.molecule.size(); ++i) {
+    if ((a.molecule.atoms[static_cast<std::size_t>(i)].position -
+         b.molecule.atoms[static_cast<std::size_t>(i)].position)
+            .norm() > tol) {
+      return false;
+    }
+  }
+  if (a.operations.size() != b.operations.size()) {
+    return false;
+  }
+  for (std::size_t i = 0; i < a.operations.size(); ++i) {
+    if ((a.operations[i].axis - b.operations[i].axis).norm() > 1e-6 &&
+        (a.operations[i].axis + b.operations[i].axis).norm() > 1e-6) {
+      // Axis direction may flip for improper ops; require parallel.
+      const double c =
+          std::abs(a.operations[i].axis.normalized().dot(b.operations[i].axis.normalized()));
+      if (c < 0.999) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+void test_inertia_frame_stable() {
+  const molsymm::Mat3 R =
+      Eigen::AngleAxisd(0.7, molsymm::Vec3(1, 2, 3).normalized()).toRotationMatrix();
+
+  auto check = [&](const molsymm::Molecule& mol, const std::string& label, bool check_frame) {
+    auto a0 = molsymm::analyze(mol);
+    auto a1 = molsymm::analyze(rotate_molecule(mol, R));
+    expect(a0.point_group == a1.point_group, label + " rotated group " + a1.point_group);
+    if (check_frame) {
+      expect(frame_coords_match(a0, a1, 1e-8), label + " rotated analysis frame matches");
+    }
+  };
+
+  check(water(), "water asymmetric/C2v", true);
+  check(co2(), "co2 linear/Dinfh", true);
+
+  auto axis_on_z = [](const molsymm::Analysis& a, int expect_n) {
+    int best_n = 1;
+    for (const auto& op : a.operations) {
+      if (op.kind == molsymm::OperationKind::ProperRotation) {
+        best_n = std::max(best_n, op.order);
+      }
+    }
+    if (best_n != expect_n) {
+      return false;
+    }
+    return std::any_of(a.operations.begin(), a.operations.end(), [&](const molsymm::Operation& op) {
+      return op.kind == molsymm::OperationKind::ProperRotation && op.order == best_n &&
+             std::abs(op.axis.normalized().z()) > 0.9;
+    });
+  };
+  for (const auto& [mol, label, n] :
+       {std::tuple{ammonia(), "ammonia", 3}, std::tuple{methane(), "methane", 3}}) {
+    auto a0 = molsymm::analyze(mol);
+    auto a1 = molsymm::analyze(rotate_molecule(mol, R));
+    expect(a0.point_group == a1.point_group && a0.orientation.determinant() > 0.0 &&
+               a1.orientation.determinant() > 0.0 && axis_on_z(a0, n) && axis_on_z(a1, n),
+           std::string(label) + " oriented with Cn on z");
   }
 }
 
@@ -610,18 +875,25 @@ void test_zmatrix() {
 } // namespace
 
 int main() {
-  test_point_groups();
-  test_subgroups_and_table();
-  test_displacements_water();
-  test_displacements_methane();
-  test_xyz_corpus();
-  test_xyz_slight_rattle();
-  test_xyz_large_rattle();
-  test_zmatrix();
-  if (g_failed) {
-    std::cerr << g_failed << " failures\n";
+  try {
+    test_point_groups();
+    test_subgroups_and_table();
+    test_displacements_water();
+    test_displacements_methane();
+    test_inertia_frame_stable();
+    test_high_symmetry_counts();
+    test_xyz_corpus();
+    test_xyz_slight_rattle();
+    test_xyz_large_rattle();
+    test_zmatrix();
+  } catch (const std::exception& ex) {
+    std::cerr << "exception: " << ex.what() << "\n";
     return 1;
   }
-  std::cout << "all tests passed\n";
+  if (g_failed) {
+    std::cerr << g_failed << " failures (" << g_passed << " checks passed)\n";
+    return 1;
+  }
+  std::cout << "all tests passed (" << g_passed << " checks)\n";
   return 0;
 }

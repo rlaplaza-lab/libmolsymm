@@ -21,9 +21,9 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
@@ -32,7 +32,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake g++
+          sudo apt-get install -y cmake ninja-build g++ libeigen3-dev
 
       - name: Install package
         run: |
@@ -47,9 +47,9 @@ jobs:
   build_sdist:
     needs: test
     if: github.event.inputs.confirm == 'publish'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: actions/setup-python@v5
         with:
@@ -85,7 +85,7 @@ jobs:
           - macos-14
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Build wheels
         uses: pypa/cibuildwheel@v4.3.1
@@ -100,7 +100,7 @@ jobs:
   publish:
     needs: [build_sdist, build_wheels]
     if: github.event.inputs.confirm == 'publish'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     environment: ${{ github.event.inputs.target }}
     permissions:
       id-token: write

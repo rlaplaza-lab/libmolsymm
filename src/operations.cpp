@@ -109,23 +109,33 @@ void close_group(std::vector<Operation>& ops,
           neu.order = 1;
         } else if (std::abs(det - 1.0) < 1e-6) {
           neu.kind = OperationKind::ProperRotation;
-          // angle from trace: 1 + 2 cos θ
+          // Match θ ≈ 2π k / n (axis order n, power k), not only 2π/n.
           double c = std::clamp((tr - 1.0) * 0.5, -1.0, 1.0);
           double ang = std::acos(c);
           if (ang < 1e-8) {
             neu.kind = OperationKind::Identity;
             neu.order = 1;
           } else {
-            int best_n = 2;
+            constexpr double kAngTol = 1e-3;
+            int best_n = 0;
+            int best_k = 1;
             double best_err = 1e9;
             for (int ord = 2; ord <= 48; ++ord) {
-              const double err = std::abs(ang - 2.0 * kPi / ord);
-              if (err < best_err) {
-                best_err = err;
-                best_n = ord;
+              for (int k = 1; k < ord; ++k) {
+                const double err = std::abs(ang - 2.0 * kPi * k / ord);
+                if (err < best_err - 1e-15 ||
+                    (std::abs(err - best_err) <= 1e-15 && (best_n == 0 || ord < best_n))) {
+                  best_err = err;
+                  best_n = ord;
+                  best_k = k;
+                }
               }
             }
+            if (best_n == 0 || best_err > kAngTol) {
+              continue;
+            }
             neu.order = best_n;
+            neu.power = best_k;
             Vec3 ax(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
             if (ax.norm() > 1e-8) {
               neu.axis = ax.normalized();
@@ -169,11 +179,13 @@ void close_group(std::vector<Operation>& ops,
             }
             neu.axis = ax.normalized();
             neu.order = 2;
+            neu.power = 1;
             Mat3 P = Mat3::Identity();
             for (int ord = 1; ord <= 48; ++ord) {
               P = M * P;
               if (matrices_equal(P, Mat3::Identity(), tol * 10.0)) {
                 neu.order = ord;
+                neu.power = 1;
                 break;
               }
             }

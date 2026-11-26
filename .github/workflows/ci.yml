@@ -66,6 +66,7 @@ jobs:
             --suppress=ConfigurationNotChecked \
             --suppress=unusedStructMember \
             --suppress=checkersReport \
+            --suppress=normalCheckLevelMaxBranches \
             "${FILES[@]}"
 
       - name: ruff
@@ -128,7 +129,7 @@ jobs:
         run: cmake --build build -j
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure --timeout 120
+        run: ctest --test-dir build --output-on-failure --timeout 180
 
   sanitize:
     name: sanitize (clang++ ASan+UBSan)

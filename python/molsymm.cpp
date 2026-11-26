@@ -70,12 +70,38 @@ NB_MODULE(molsymm, m) {
       .def_ro("symmetry_number", &molsymm::Analysis::symmetry_number)
       .def_ro("rmsd", &molsymm::Analysis::rmsd)
       .def_ro("subgroups", &molsymm::Analysis::subgroups)
+      .def_prop_ro("atomic_numbers",
+                   [](const molsymm::Analysis& a) {
+                     std::vector<int> z;
+                     z.reserve(static_cast<std::size_t>(a.molecule.size()));
+                     for (const auto& atom : a.molecule.atoms) {
+                       z.push_back(atom.atomic_number);
+                     }
+                     return z;
+                   })
+      .def_prop_ro("frame_xyz",
+                   [](const molsymm::Analysis& a) {
+                     // Nested lists: Eigen↔NumPy casters corrupted columns on some builds.
+                     std::vector<std::vector<double>> xyz;
+                     xyz.reserve(static_cast<std::size_t>(a.molecule.size()));
+                     for (const auto& atom : a.molecule.atoms) {
+                       xyz.push_back({atom.position.x(), atom.position.y(), atom.position.z()});
+                     }
+                     return xyz;
+                   })
       .def_prop_ro("operations",
                    [](const molsymm::Analysis& a) {
-                     std::vector<Eigen::Matrix3d> mats;
+                     std::vector<std::vector<std::vector<double>>> mats;
                      mats.reserve(a.operations.size());
                      for (const auto& op : a.operations) {
-                       mats.push_back(op.matrix);
+                       std::vector<std::vector<double>> m(3, std::vector<double>(3));
+                       for (int r = 0; r < 3; ++r) {
+                         for (int c = 0; c < 3; ++c) {
+                           m[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] =
+                               op.matrix(r, c);
+                         }
+                       }
+                       mats.push_back(std::move(m));
                      }
                      return mats;
                    })

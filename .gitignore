@@ -14,3 +14,7 @@ compile_commands.json
 .pytest_cache/
 .ruff_cache/
 wheelhouse/
+timer.dat
+# Local PySCF/Psi4 corpus helpers (not part of the shipped test suite).
+tests/make_corpus.py
+tests/test_oracles.py

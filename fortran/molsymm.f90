@@ -2,7 +2,7 @@ module molsymm
   use, intrinsic :: iso_c_binding
   implicit none
   private
-  public :: ms_analyze, ms_release, ms_point_group_name, ms_symmetry_number
+  public :: ms_analyze, ms_release, ms_point_group_name, ms_symmetry_number, ms_order
   public :: ms_symmetrize, ms_unique_displacements, ms_n_displacements
   public :: ms_displacement_geometry, ms_hessian_from_gradients, ms_release_displacements
   public :: ms_last_error, ms_zatom, ms_zmatrix_to_xyz, ms_analyze_zmatrix
@@ -68,6 +68,13 @@ interface
     type(c_ptr), value :: a
     integer(c_int), intent(out) :: out
     integer(c_int) :: molsymm_symmetry_number
+  end function
+
+  function molsymm_order(a, out) bind(c, name="molsymm_order")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: a
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_order
   end function
 
   function molsymm_symmetrize(a, rmsd, xyz_out) bind(c, name="molsymm_symmetrize")
@@ -216,6 +223,12 @@ contains
     type(c_ptr), intent(in) :: handle
     integer(c_int), intent(out) :: sigma, status
     status = molsymm_symmetry_number(handle, sigma)
+  end subroutine
+
+  subroutine ms_order(handle, order, status)
+    type(c_ptr), intent(in) :: handle
+    integer(c_int), intent(out) :: order, status
+    status = molsymm_order(handle, order)
   end subroutine
 
   subroutine ms_symmetrize(handle, xyz_out, rmsd, status)

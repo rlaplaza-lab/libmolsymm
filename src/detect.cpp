@@ -6,21 +6,83 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <sstream>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 namespace molsymm {
 namespace {
+
+void canonicalize_axis(Vec3& u) {
+  if (u.z() < -1e-12 || (std::abs(u.z()) < 1e-12 && u.y() < -1e-12) ||
+      (std::abs(u.z()) < 1e-12 && std::abs(u.y()) < 1e-12 && u.x() < 0)) {
+    u = -u;
+  }
+}
+
+struct AxisBucketKey {
+  std::int32_t ix = 0;
+  std::int32_t iy = 0;
+  std::int32_t iz = 0;
+  bool operator==(const AxisBucketKey& o) const { return ix == o.ix && iy == o.iy && iz == o.iz; }
+};
+
+struct AxisBucketHash {
+  std::size_t operator()(const AxisBucketKey& k) const {
+    return (static_cast<std::size_t>(static_cast<std::uint32_t>(k.ix)) * 73856093U) ^
+           (static_cast<std::size_t>(static_cast<std::uint32_t>(k.iy)) * 19349663U) ^
+           (static_cast<std::size_t>(static_cast<std::uint32_t>(k.iz)) * 83492791U);
+  }
+};
+
+AxisBucketKey axis_bucket(const Vec3& u, double inv_bin) {
+  return {static_cast<std::int32_t>(std::floor(u.x() * inv_bin + 0.5)),
+          static_cast<std::int32_t>(std::floor(u.y() * inv_bin + 0.5)),
+          static_cast<std::int32_t>(std::floor(u.z() * inv_bin + 0.5))};
+}
+
+struct AxisSet {
+  std::vector<Vec3> axes;
+  std::unordered_map<AxisBucketKey, std::vector<int>, AxisBucketHash> buckets;
+  double inv_bin;
+
+  explicit AxisSet(double angle_tol) : inv_bin(1.0 / std::max(angle_tol, 1e-4)) {}
+
+  void add(const Vec3& a, double angle_tol) {
+    if (a.norm() < 1e-10) {
+      return;
+    }
+    Vec3 u = a.normalized();
+    canonicalize_axis(u);
+    const AxisBucketKey key = axis_bucket(u, inv_bin);
+    for (int dx = -1; dx <= 1; ++dx) {
+      for (int dy = -1; dy <= 1; ++dy) {
+        for (int dz = -1; dz <= 1; ++dz) {
+          auto it = buckets.find({key.ix + dx, key.iy + dy, key.iz + dz});
+          if (it == buckets.end()) {
+            continue;
+          }
+          for (int idx : it->second) {
+            if (detail::parallel_axis(axes[static_cast<std::size_t>(idx)], u, angle_tol)) {
+              return;
+            }
+          }
+        }
+      }
+    }
+    buckets[key].push_back(static_cast<int>(axes.size()));
+    axes.push_back(u);
+  }
+};
 
 void add_unique_axis(std::vector<Vec3>& axes, const Vec3& a, double angle_tol) {
   if (a.norm() < 1e-10) {
     return;
   }
   Vec3 u = a.normalized();
-  if (u.z() < -1e-12 || (std::abs(u.z()) < 1e-12 && u.y() < -1e-12) ||
-      (std::abs(u.z()) < 1e-12 && std::abs(u.y()) < 1e-12 && u.x() < 0)) {
-    u = -u;
-  }
+  canonicalize_axis(u);
   for (const Vec3& existing : axes) {
     if (detail::parallel_axis(existing, u, angle_tol)) {
       return;
@@ -116,14 +178,42 @@ AxisOrder highest_order_on_axis(const std::vector<Atom>& atoms,
                                 const Vec3& axis,
                                 int max_n,
                                 double tol) {
+  std::vector<char> failed(static_cast<std::size_t>(max_n) + 1, 0);
   for (int n = max_n; n >= 2; --n) {
+    bool ruled_out = false;
+    for (int d = 2; d < n; ++d) {
+      if (n % d == 0 && failed[static_cast<std::size_t>(d)]) {
+        ruled_out = true;
+        break;
+      }
+    }
+    if (ruled_out) {
+      failed[static_cast<std::size_t>(n)] = 1;
+      continue;
+    }
     Mat3 R = detail::rotation_matrix(axis, 2.0 * detail::kPi / n);
     std::vector<int> image = detail::permutation(atoms, by_z, R, tol);
     if (!image.empty()) {
       return {n, std::move(image)};
     }
+    failed[static_cast<std::size_t>(n)] = 1;
   }
   return {};
+}
+
+std::vector<int> compose_perm(const std::vector<int>& p, int times) {
+  std::vector<int> out(p.size());
+  for (std::size_t i = 0; i < p.size(); ++i) {
+    out[i] = static_cast<int>(i);
+  }
+  for (int t = 0; t < times; ++t) {
+    std::vector<int> next(out.size());
+    for (std::size_t i = 0; i < out.size(); ++i) {
+      next[i] = p[static_cast<std::size_t>(out[i])];
+    }
+    out.swap(next);
+  }
+  return out;
 }
 
 } // namespace
@@ -245,77 +335,33 @@ int symmetry_number_for(const std::string& name, int n) {
   if (!name.empty() && name[0] == 'D') {
     return 2 * n;
   }
-  if (!name.empty() && (name[0] == 'C' || name[0] == 'S')) {
+  if (!name.empty() && name[0] == 'S') {
+    return std::max(n / 2, 1);
+  }
+  if (!name.empty() && name[0] == 'C') {
     return std::max(n, 1);
   }
   return 1;
 }
 
-void align_to_frame(Molecule& mol,
-                    std::vector<Operation>& ops,
-                    Mat3& orientation,
-                    const Tolerances& tol) {
-  Vec3 primary = Vec3::UnitZ();
-  int best_n = 1;
-  for (const Operation& op : ops) {
-    if (op.kind == OperationKind::ProperRotation && op.order > best_n) {
-      best_n = op.order;
-      primary = op.axis.normalized();
+static Vec3 sign_principal_axis(Vec3 v) {
+  if (v.norm() < 1e-15) {
+    return Vec3::UnitZ();
+  }
+  v.normalize();
+  int best = 0;
+  for (int i = 1; i < 3; ++i) {
+    if (std::abs(v(i)) > std::abs(v(best)) + 1e-15) {
+      best = i;
     }
   }
-  if (best_n == 1) {
-    orientation = Mat3::Identity();
-    return;
+  if (v(best) < 0.0) {
+    v = -v;
   }
+  return v;
+}
 
-  Vec3 secondary = Vec3::UnitX();
-  bool found = false;
-  for (const Operation& op : ops) {
-    if (op.kind == OperationKind::ProperRotation && op.order == 2) {
-      if (std::abs(op.axis.normalized().dot(primary)) < 0.2) {
-        secondary = op.axis.normalized();
-        found = true;
-        break;
-      }
-    }
-  }
-  if (!found) {
-    for (const Operation& op : ops) {
-      if (op.kind == OperationKind::Reflection) {
-        Vec3 inplane = op.axis.cross(primary);
-        if (inplane.norm() > 1e-8) {
-          secondary = inplane.normalized();
-          found = true;
-          break;
-        }
-      }
-    }
-  }
-  if (!found) {
-    for (const Atom& a : mol.atoms) {
-      Vec3 proj = a.position - a.position.dot(primary) * primary;
-      if (proj.norm() > tol.primary) {
-        secondary = proj.normalized();
-        break;
-      }
-    }
-  }
-
-  Vec3 z = primary.normalized();
-  Vec3 y = z.cross(secondary);
-  if (y.norm() < 1e-8) {
-    secondary = (std::abs(z.x()) < 0.9) ? Vec3::UnitX() : Vec3::UnitY();
-    y = z.cross(secondary);
-  }
-  y.normalize();
-  Vec3 x = y.cross(z);
-
-  Mat3 R;
-  R.row(0) = x.transpose();
-  R.row(1) = y.transpose();
-  R.row(2) = z.transpose();
-  orientation = R;
-
+static void apply_orientation(Molecule& mol, std::vector<Operation>& ops, const Mat3& R) {
   for (Atom& a : mol.atoms) {
     a.position = R * a.position;
   }
@@ -326,6 +372,194 @@ void align_to_frame(Molecule& mol,
       op.axis.normalize();
     }
   }
+}
+
+static Mat3 basis_from_z_and_secondary(Vec3 z, Vec3 secondary) {
+  z.normalize();
+  Vec3 y = z.cross(secondary);
+  if (y.norm() < 1e-8) {
+    secondary = (std::abs(z.x()) < 0.9) ? Vec3::UnitX() : Vec3::UnitY();
+    y = z.cross(secondary);
+  }
+  y.normalize();
+  Vec3 x = y.cross(z);
+  Mat3 R;
+  R.row(0) = x.transpose();
+  R.row(1) = y.transpose();
+  R.row(2) = z.transpose();
+  if (R.determinant() < 0.0) {
+    R.row(1) *= -1.0;
+  }
+  return R;
+}
+
+static Vec3 pick_secondary_in_plane(const std::vector<Operation>& ops,
+                                    const Vec3& primary,
+                                    const Vec3& preferred_x) {
+  Vec3 best = Vec3::Zero();
+  double best_score = -1.0;
+  auto consider = [&](Vec3 cand) {
+    cand = cand - cand.dot(primary) * primary;
+    if (cand.norm() < 1e-8) {
+      return;
+    }
+    cand.normalize();
+    if (cand.dot(preferred_x) < 0.0) {
+      cand = -cand;
+    }
+    const double score = cand.dot(preferred_x);
+    if (score > best_score) {
+      best_score = score;
+      best = cand;
+    }
+  };
+  for (const Operation& op : ops) {
+    if (op.kind == OperationKind::ProperRotation && op.order == 2 &&
+        std::abs(op.axis.normalized().dot(primary)) < 0.2) {
+      consider(op.axis.normalized());
+    }
+  }
+  if (best_score >= 0.0) {
+    return best;
+  }
+  for (const Operation& op : ops) {
+    if (op.kind == OperationKind::Reflection && std::abs(op.axis.normalized().dot(primary)) < 0.2) {
+      consider(op.axis.cross(primary));
+    }
+  }
+  if (best_score >= 0.0) {
+    return best;
+  }
+  Vec3 fallback = preferred_x - preferred_x.dot(primary) * primary;
+  if (fallback.norm() < 1e-8) {
+    fallback = (std::abs(primary.x()) < 0.9) ? Vec3::UnitX() : Vec3::UnitY();
+    fallback = fallback - fallback.dot(primary) * primary;
+  }
+  return fallback.normalized();
+}
+
+static Vec3 pick_spherical_primary(const std::vector<Operation>& ops,
+                                   const Vec3& input_z,
+                                   const Vec3& input_x) {
+  int best_n = 1;
+  for (const Operation& op : ops) {
+    if (op.kind == OperationKind::ProperRotation && op.order > best_n) {
+      best_n = op.order;
+    }
+  }
+  Vec3 best = Vec3::UnitZ();
+  double best_abs = -1.0;
+  double best_signed = 0.0;
+  double best_abs_x = -1.0;
+  for (const Operation& op : ops) {
+    if (op.kind != OperationKind::ProperRotation || op.order != best_n) {
+      continue;
+    }
+    Vec3 a = op.axis.normalized();
+    double oz = a.dot(input_z);
+    if (oz < 0.0) {
+      a = -a;
+      oz = -oz;
+    }
+    const double abs_z = std::abs(a.dot(input_z));
+    const double abs_x = std::abs(a.dot(input_x));
+    const bool better = abs_z > best_abs + 1e-12 ||
+                        (std::abs(abs_z - best_abs) <= 1e-12 &&
+                         (oz > best_signed + 1e-12 ||
+                          (std::abs(oz - best_signed) <= 1e-12 && abs_x > best_abs_x + 1e-12)));
+    if (better) {
+      best_abs = abs_z;
+      best_signed = oz;
+      best_abs_x = abs_x;
+      best = a;
+    }
+  }
+  return best;
+}
+
+void align_to_frame(Molecule& mol,
+                    std::vector<Operation>& ops,
+                    Mat3& orientation,
+                    const Tolerances& tol,
+                    const Vec3& sevals,
+                    bool spherical,
+                    bool linear,
+                    const std::string& point_group,
+                    const Vec3& input_x_in_frame,
+                    const Vec3& input_z_in_frame) {
+  const double imean =
+      (std::abs(sevals(0)) + std::abs(sevals(1)) + std::abs(sevals(2))) / 3.0 + 1e-12;
+  const bool deg_xy = std::abs(sevals(0) - sevals(1)) / imean < tol.inertia;
+  const bool deg_yz = std::abs(sevals(1) - sevals(2)) / imean < tol.inertia;
+
+  Vec3 preferred_x = input_x_in_frame;
+  if (preferred_x.norm() < 1e-8) {
+    preferred_x = Vec3::UnitX();
+  } else {
+    preferred_x.normalize();
+  }
+
+  Vec3 z_axis = Vec3::UnitZ();
+  Vec3 secondary = Vec3::UnitX();
+
+  if (spherical) {
+    z_axis = pick_spherical_primary(ops, input_z_in_frame, preferred_x);
+    secondary = pick_secondary_in_plane(ops, z_axis, preferred_x);
+  } else if (linear || (deg_yz && !deg_xy)) {
+    z_axis = Vec3::UnitX();
+    secondary = pick_secondary_in_plane(ops, z_axis, preferred_x);
+    if (secondary.norm() < 1e-8) {
+      secondary = Vec3::UnitY();
+    }
+  } else if (deg_xy && !deg_yz) {
+    z_axis = Vec3::UnitZ();
+    secondary = pick_secondary_in_plane(ops, z_axis, preferred_x);
+  } else if (point_group == "D2" || point_group == "D2h" || point_group == "C1" ||
+             point_group == "Ci") {
+    z_axis = Vec3::UnitZ();
+    secondary = Vec3::UnitX();
+  } else if (point_group == "Cs") {
+    for (const Operation& op : ops) {
+      if (op.kind == OperationKind::Reflection) {
+        z_axis = op.axis.normalized();
+        if (z_axis.dot(input_z_in_frame) < 0.0) {
+          z_axis = -z_axis;
+        }
+        break;
+      }
+    }
+    secondary = preferred_x;
+  } else {
+    int best_n = 1;
+    Vec3 primary = Vec3::UnitZ();
+    for (const Operation& op : ops) {
+      if (op.kind == OperationKind::ProperRotation && op.order > best_n) {
+        best_n = op.order;
+        primary = op.axis.normalized();
+      }
+    }
+    if (best_n >= 2) {
+      const std::array<Vec3, 3> axes{{Vec3::UnitX(), Vec3::UnitY(), Vec3::UnitZ()}};
+      int best_axis = 0;
+      double best_abs = -1.0;
+      for (int i = 0; i < 3; ++i) {
+        const double a = std::abs(primary.dot(axes[static_cast<std::size_t>(i)]));
+        if (a > best_abs) {
+          best_abs = a;
+          best_axis = i;
+        }
+      }
+      z_axis = axes[static_cast<std::size_t>(best_axis)];
+      if (primary.dot(z_axis) < 0.0) {
+        z_axis = -z_axis;
+      }
+      secondary = (best_axis == 0) ? Vec3::UnitY() : Vec3::UnitX();
+    }
+  }
+
+  Mat3 R = basis_from_z_and_secondary(z_axis, secondary);
+  orientation = R;
+  apply_orientation(mol, ops, R);
 }
 
 } // namespace detail
@@ -371,13 +605,15 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   Vec3 sevals = Vec3::Zero();
   for (int i = 0; i < 3; ++i) {
     sevals(i) = evals(order[static_cast<std::size_t>(i)]);
-    sorted.col(i) = evecs.col(order[static_cast<std::size_t>(i)]);
+    sorted.col(i) = detail::sign_principal_axis(evecs.col(order[static_cast<std::size_t>(i)]));
   }
   if (sorted.determinant() < 0) {
-    sorted.col(0) *= -1;
+    sorted.col(1) *= -1;
   }
 
   Mat3 to_frame = sorted.transpose();
+  const Vec3 input_x_in_frame = to_frame * Vec3::UnitX();
+  const Vec3 input_z_in_frame = to_frame * Vec3::UnitZ();
   for (Atom& a : mol.atoms) {
     a.position = to_frame * a.position;
   }
@@ -386,10 +622,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       (std::abs(sevals(0)) + std::abs(sevals(1)) + std::abs(sevals(2))) / 3.0 + 1e-12;
   const bool spherical = std::abs(sevals(0) - sevals(1)) / imean < tol.inertia &&
                          std::abs(sevals(1) - sevals(2)) / imean < tol.inertia;
-  const bool linear_inertia =
-      sevals(0) / imean < tol.inertia && std::abs(sevals(1) - sevals(2)) / imean < tol.inertia;
-  const bool collinear = atoms_collinear(mol, tol.primary * 10.0);
-  result.linear = linear_inertia || collinear;
+  result.linear = atoms_collinear(mol, tol.primary);
 
   result.equivalence_sets = build_equivalence_sets(mol, tol.primary);
 
@@ -419,55 +652,28 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   }
 
-  std::vector<Vec3> axes;
-  add_unique_axis(axes, Vec3::UnitX(), tol.angle);
-  add_unique_axis(axes, Vec3::UnitY(), tol.angle);
-  add_unique_axis(axes, Vec3::UnitZ(), tol.angle);
+  AxisSet axis_set(tol.angle);
+  axis_set.add(Vec3::UnitX(), tol.angle);
+  axis_set.add(Vec3::UnitY(), tol.angle);
+  axis_set.add(Vec3::UnitZ(), tol.angle);
 
   for (const EquivalenceSet& eq_set : result.equivalence_sets) {
     for (std::size_t i = 0; i < eq_set.atoms.size(); ++i) {
       const Vec3& pi = mol.atoms[static_cast<std::size_t>(eq_set.atoms[i])].position;
       if (pi.norm() > tol.primary) {
-        add_unique_axis(axes, pi, tol.angle);
+        axis_set.add(pi, tol.angle);
       }
       for (std::size_t j = i + 1; j < eq_set.atoms.size(); ++j) {
         const Vec3& pj = mol.atoms[static_cast<std::size_t>(eq_set.atoms[j])].position;
-        add_unique_axis(axes, pi + pj, tol.angle);
-        add_unique_axis(axes, pi.cross(pj), tol.angle);
-        add_unique_axis(axes, pj - pi, tol.angle);
+        axis_set.add(pi + pj, tol.angle);
+        axis_set.add(pi.cross(pj), tol.angle);
+        axis_set.add(pj - pi, tol.angle);
       }
     }
   }
+  const std::vector<Vec3>& axes = axis_set.axes;
 
   if (result.linear) {
-    if (collinear) {
-      int i0 = 0;
-      double rmax = 0;
-      for (int i = 0; i < mol.size(); ++i) {
-        double r = mol.atoms[static_cast<std::size_t>(i)].position.norm();
-        if (r > rmax) {
-          rmax = r;
-          i0 = i;
-        }
-      }
-      if (rmax > tol.primary) {
-        Vec3 axis = mol.atoms[static_cast<std::size_t>(i0)].position.normalized();
-        Vec3 y = axis.cross(Vec3::UnitX());
-        if (y.norm() < 1e-8) {
-          y = axis.cross(Vec3::UnitY());
-        }
-        y.normalize();
-        Vec3 x = y.cross(axis);
-        Mat3 R;
-        R.row(0) = x.transpose();
-        R.row(1) = y.transpose();
-        R.row(2) = axis.transpose();
-        for (Atom& a : mol.atoms) {
-          a.position = R * a.position;
-        }
-        to_frame = R * to_frame;
-      }
-    }
     Operation c2 = make_cn(Vec3::UnitX(), 2, 1, mol.atoms, by_z, tol.primary);
     if (!c2.image.empty()) {
       ops.push_back(c2);
@@ -476,7 +682,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     if (!sig.image.empty()) {
       ops.push_back(sig);
     }
-    Operation sigh = make_sigma(Vec3::UnitZ(), PlaneKind::Horizontal, mol.atoms, by_z, tol.primary);
+    Operation sigh = make_sigma(Vec3::UnitX(), PlaneKind::Horizontal, mol.atoms, by_z, tol.primary);
     if (!sigh.image.empty()) {
       ops.push_back(sigh);
     }
@@ -484,21 +690,20 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     for (const Vec3& axis : axes) {
       AxisOrder ao = highest_order_on_axis(mol.atoms, by_z, axis, tol.max_axis_order, tol.primary);
       if (ao.n >= 2) {
+        const std::vector<int> gen_image = ao.image;
         for (int k = 1; k < ao.n; ++k) {
           Operation op;
+          op.kind = OperationKind::ProperRotation;
+          op.order = ao.n;
+          op.power = k;
+          op.axis = axis.normalized();
+          op.matrix = detail::rotation_matrix(op.axis, 2.0 * detail::kPi * k / ao.n);
           if (k == 1) {
-            op.kind = OperationKind::ProperRotation;
-            op.order = ao.n;
-            op.power = 1;
-            op.axis = axis.normalized();
-            op.matrix = detail::rotation_matrix(op.axis, 2.0 * detail::kPi / ao.n);
-            op.image = std::move(ao.image);
+            op.image = gen_image;
           } else {
-            op = make_cn(axis, ao.n, k, mol.atoms, by_z, tol.primary);
+            op.image = compose_perm(gen_image, k);
           }
-          if (!op.image.empty()) {
-            ops.push_back(std::move(op));
-          }
+          ops.push_back(std::move(op));
         }
         for (int sn = 4; sn <= 2 * ao.n; sn += 2) {
           Operation op = make_sn(axis, sn, 1, mol.atoms, by_z, tol.primary);
@@ -624,10 +829,40 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   }
 
   Mat3 extra = Mat3::Identity();
-  if (!result.linear && result.point_group != "C1" && result.point_group != "Cs" &&
-      result.point_group != "Ci") {
-    detail::align_to_frame(mol, ops, extra, tol);
+  detail::align_to_frame(mol,
+                         ops,
+                         extra,
+                         tol,
+                         sevals,
+                         spherical,
+                         result.linear,
+                         result.point_group,
+                         input_x_in_frame,
+                         input_z_in_frame);
+
+  {
+    const bool even_axial = n_group >= 2 && (n_group % 2 == 0) && !result.point_group.empty() &&
+                            (result.point_group[0] == 'C' || result.point_group[0] == 'D') &&
+                            (result.point_group.back() == 'v' || result.point_group.back() == 'h');
+    for (Operation& op : ops) {
+      if (op.kind != OperationKind::Reflection || op.axis.norm() < 1e-12) {
+        continue;
+      }
+      const Vec3 nrm = op.axis.normalized();
+      const double dz = std::abs(nrm.dot(Vec3::UnitZ()));
+      if (dz > 0.9) {
+        op.plane = PlaneKind::Horizontal;
+      } else if (dz < 0.2) {
+        op.plane =
+            (!even_axial || std::abs(nrm.dot(Vec3::UnitX())) >= std::abs(nrm.dot(Vec3::UnitY())))
+                ? PlaneKind::Vertical
+                : PlaneKind::Dihedral;
+      } else {
+        op.plane = PlaneKind::Dihedral;
+      }
+    }
   }
+
   result.orientation = extra * to_frame;
   result.molecule = std::move(mol);
   result.operations = std::move(ops);

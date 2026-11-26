@@ -140,7 +140,13 @@ void assign_conjugacy_classes(std::vector<Operation>& ops, double tol);
 void align_to_frame(Molecule& mol,
                     std::vector<Operation>& ops,
                     Mat3& orientation,
-                    const Tolerances& tol);
+                    const Tolerances& tol,
+                    const Vec3& sevals,
+                    bool spherical,
+                    bool linear,
+                    const std::string& point_group,
+                    const Vec3& input_x_in_frame,
+                    const Vec3& input_z_in_frame);
 
 } // namespace molsymm::detail
 
