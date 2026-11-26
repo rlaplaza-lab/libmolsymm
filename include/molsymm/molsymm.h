@@ -7,6 +7,8 @@ extern "C" {
 
 typedef struct molsymm_analysis molsymm_analysis;
 typedef struct molsymm_displacements molsymm_displacements;
+typedef struct molsymm_fragmentation molsymm_fragmentation;
+typedef struct molsymm_assembly molsymm_assembly;
 
 const char* molsymm_last_error(void);
 
@@ -73,6 +75,29 @@ int molsymm_hessian_from_gradients(const molsymm_displacements* d,
                                    const double* g_plus,
                                    const double* g_minus,
                                    double* hess_out);
+
+int molsymm_make_fragmentation(const molsymm_analysis* a, molsymm_fragmentation** out);
+void molsymm_free_fragmentation(molsymm_fragmentation* f);
+int molsymm_n_representatives(const molsymm_fragmentation* f, int* out);
+int molsymm_representative_atom(const molsymm_fragmentation* f, int index, int* atom);
+int molsymm_n_copies(const molsymm_fragmentation* f, int* out);
+int molsymm_copy_n_atoms(const molsymm_fragmentation* f, int copy, int* out);
+int molsymm_copy_atoms(const molsymm_fragmentation* f, int copy, int* atoms_out);
+int molsymm_fragment_mask(const molsymm_fragmentation* f, unsigned char* mask_out);
+int molsymm_n_free_axes(const molsymm_fragmentation* f, int site, int* out);
+int molsymm_free_axis(const molsymm_fragmentation* f, int site, int axis, double* xyz);
+int molsymm_reconstruct(const molsymm_fragmentation* f, const double* rep_xyz, double* xyz_out);
+
+int molsymm_subgroup_assembly(const molsymm_analysis* a,
+                              const char* subgroup,
+                              molsymm_assembly** out);
+void molsymm_free_assembly(molsymm_assembly* asm_);
+int molsymm_assembly_n_pieces(const molsymm_assembly* asm_, int* out);
+int molsymm_assembly_piece_n_atoms(const molsymm_assembly* asm_, int piece, int* out);
+int molsymm_assembly_piece_atoms(const molsymm_assembly* asm_, int piece, int* atoms_out);
+int molsymm_assembly_n_free_axes(const molsymm_assembly* asm_, int site, int* out);
+int molsymm_assembly_free_axis(const molsymm_assembly* asm_, int site, int axis, double* xyz);
+int molsymm_assemble(const molsymm_assembly* asm_, const double* piece_xyz, double* xyz_out);
 
 #ifdef __cplusplus
 }

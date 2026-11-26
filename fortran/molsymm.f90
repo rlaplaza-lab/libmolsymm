@@ -6,6 +6,10 @@ module molsymm
   public :: ms_symmetrize, ms_unique_displacements, ms_n_displacements
   public :: ms_displacement_geometry, ms_hessian_from_gradients, ms_release_displacements
   public :: ms_last_error, ms_zatom, ms_zmatrix_to_xyz, ms_analyze_zmatrix
+  public :: ms_fragmentation, ms_release_fragmentation, ms_n_representatives
+  public :: ms_representative_atom, ms_n_copies, ms_copy_atoms, ms_fragment_mask
+  public :: ms_reconstruct, ms_subgroup_assembly, ms_release_assembly
+  public :: ms_assembly_n_pieces, ms_assembly_piece_atoms, ms_assemble
 
   type, bind(c) :: ms_zatom
     integer(c_int) :: atomic_number
@@ -121,6 +125,117 @@ interface
     real(c_double), intent(in) :: g_plus(*), g_minus(*)
     real(c_double), intent(out) :: hess_out(*)
     integer(c_int) :: molsymm_hessian_from_gradients
+  end function
+
+  function molsymm_make_fragmentation(a, out) bind(c, name="molsymm_make_fragmentation")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: a
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_make_fragmentation
+  end function
+
+  subroutine molsymm_free_fragmentation(f) bind(c, name="molsymm_free_fragmentation")
+    import :: c_ptr
+    type(c_ptr), value :: f
+  end subroutine
+
+  function molsymm_n_representatives(f, out) bind(c, name="molsymm_n_representatives")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: f
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_n_representatives
+  end function
+
+  function molsymm_representative_atom(f, index, atom) bind(c, name="molsymm_representative_atom")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: f
+    integer(c_int), value :: index
+    integer(c_int), intent(out) :: atom
+    integer(c_int) :: molsymm_representative_atom
+  end function
+
+  function molsymm_n_copies(f, out) bind(c, name="molsymm_n_copies")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: f
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_n_copies
+  end function
+
+  function molsymm_copy_n_atoms(f, copy, out) bind(c, name="molsymm_copy_n_atoms")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: f
+    integer(c_int), value :: copy
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_copy_n_atoms
+  end function
+
+  function molsymm_copy_atoms(f, copy, atoms_out) bind(c, name="molsymm_copy_atoms")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: f
+    integer(c_int), value :: copy
+    integer(c_int), intent(out) :: atoms_out(*)
+    integer(c_int) :: molsymm_copy_atoms
+  end function
+
+  function molsymm_fragment_mask(f, mask_out) bind(c, name="molsymm_fragment_mask")
+    import :: c_int, c_ptr, c_signed_char
+    type(c_ptr), value :: f
+    integer(c_signed_char), intent(out) :: mask_out(*)
+    integer(c_int) :: molsymm_fragment_mask
+  end function
+
+  function molsymm_reconstruct(f, rep_xyz, xyz_out) bind(c, name="molsymm_reconstruct")
+    import :: c_int, c_ptr, c_double
+    type(c_ptr), value :: f
+    real(c_double), intent(in) :: rep_xyz(*)
+    real(c_double), intent(out) :: xyz_out(*)
+    integer(c_int) :: molsymm_reconstruct
+  end function
+
+  function molsymm_subgroup_assembly(a, subgroup, out) bind(c, name="molsymm_subgroup_assembly")
+    import :: c_int, c_ptr, c_char
+    type(c_ptr), value :: a
+    character(kind=c_char), intent(in) :: subgroup(*)
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_subgroup_assembly
+  end function
+
+  subroutine molsymm_free_assembly(asm) bind(c, name="molsymm_free_assembly")
+    import :: c_ptr
+    type(c_ptr), value :: asm
+  end subroutine
+
+  function molsymm_assembly_n_pieces(asm, out) bind(c, name="molsymm_assembly_n_pieces")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: asm
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_assembly_n_pieces
+  end function
+
+  function molsymm_assembly_piece_n_atoms(asm, piece, out) &
+      bind(c, name="molsymm_assembly_piece_n_atoms")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: asm
+    integer(c_int), value :: piece
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_assembly_piece_n_atoms
+  end function
+
+  function molsymm_assembly_piece_atoms(asm, piece, atoms_out) &
+      bind(c, name="molsymm_assembly_piece_atoms")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: asm
+    integer(c_int), value :: piece
+    integer(c_int), intent(out) :: atoms_out(*)
+    integer(c_int) :: molsymm_assembly_piece_atoms
+  end function
+
+  function molsymm_assemble(asm, piece_xyz, xyz_out) bind(c, name="molsymm_assemble")
+    import :: c_int, c_ptr, c_double
+    type(c_ptr), value :: asm
+    real(c_double), intent(in) :: piece_xyz(*)
+    real(c_double), intent(out) :: xyz_out(*)
+    integer(c_int) :: molsymm_assemble
   end function
 end interface
 
@@ -287,6 +402,141 @@ contains
     real(c_double), intent(out) :: hess_out(:)
     integer(c_int), intent(out) :: status
     status = molsymm_hessian_from_gradients(dhandle, g_plus, g_minus, hess_out)
+  end subroutine
+
+  subroutine ms_fragmentation(handle, fhandle, status)
+    type(c_ptr), intent(in) :: handle
+    type(c_ptr), intent(out) :: fhandle
+    integer(c_int), intent(out) :: status
+    status = molsymm_make_fragmentation(handle, fhandle)
+  end subroutine
+
+  subroutine ms_release_fragmentation(fhandle)
+    type(c_ptr), intent(inout) :: fhandle
+    if (c_associated(fhandle)) call molsymm_free_fragmentation(fhandle)
+    fhandle = c_null_ptr
+  end subroutine
+
+  subroutine ms_n_representatives(fhandle, n, status)
+    type(c_ptr), intent(in) :: fhandle
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_n_representatives(fhandle, n)
+  end subroutine
+
+  subroutine ms_representative_atom(fhandle, index, atom, status)
+    type(c_ptr), intent(in) :: fhandle
+    integer(c_int), intent(in) :: index
+    integer(c_int), intent(out) :: atom, status
+    status = molsymm_representative_atom(fhandle, index, atom)
+  end subroutine
+
+  subroutine ms_n_copies(fhandle, n, status)
+    type(c_ptr), intent(in) :: fhandle
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_n_copies(fhandle, n)
+  end subroutine
+
+  subroutine ms_copy_atoms(fhandle, copy, atoms, status)
+    type(c_ptr), intent(in) :: fhandle
+    integer(c_int), intent(in) :: copy
+    integer(c_int), intent(out) :: atoms(:)
+    integer(c_int), intent(out) :: status
+    integer(c_int) :: n
+    status = molsymm_copy_n_atoms(fhandle, copy, n)
+    if (status /= 0) return
+    if (size(atoms) < n) then
+      status = -1
+      return
+    end if
+    status = molsymm_copy_atoms(fhandle, copy, atoms)
+  end subroutine
+
+  subroutine ms_fragment_mask(fhandle, mask, status)
+    type(c_ptr), intent(in) :: fhandle
+    integer(c_signed_char), intent(out) :: mask(:)
+    integer(c_int), intent(out) :: status
+    status = molsymm_fragment_mask(fhandle, mask)
+  end subroutine
+
+  subroutine ms_reconstruct(fhandle, rep_xyz, xyz_out, status)
+    type(c_ptr), intent(in) :: fhandle
+    real(c_double), intent(in) :: rep_xyz(:,:)   ! (3, n_rep)
+    real(c_double), intent(out) :: xyz_out(:,:)  ! (3, n)
+    integer(c_int), intent(out) :: status
+    real(c_double), allocatable :: flat_in(:), flat_out(:)
+    integer :: nrep, n, i
+    nrep = size(rep_xyz, 2)
+    n = size(xyz_out, 2)
+    allocate(flat_in(3*nrep), flat_out(3*n))
+    do i = 1, nrep
+      flat_in(3*(i-1)+1:3*(i-1)+3) = rep_xyz(:, i)
+    end do
+    status = molsymm_reconstruct(fhandle, flat_in, flat_out)
+    do i = 1, n
+      xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
+    end do
+  end subroutine
+
+  subroutine ms_subgroup_assembly(handle, subgroup, ahandle, status)
+    type(c_ptr), intent(in) :: handle
+    character(len=*), intent(in) :: subgroup
+    type(c_ptr), intent(out) :: ahandle
+    integer(c_int), intent(out) :: status
+    character(kind=c_char), allocatable :: cname(:)
+    integer :: i, n
+    n = len_trim(subgroup)
+    allocate(cname(n+1))
+    do i = 1, n
+      cname(i) = subgroup(i:i)
+    end do
+    cname(n+1) = c_null_char
+    status = molsymm_subgroup_assembly(handle, cname, ahandle)
+  end subroutine
+
+  subroutine ms_release_assembly(ahandle)
+    type(c_ptr), intent(inout) :: ahandle
+    if (c_associated(ahandle)) call molsymm_free_assembly(ahandle)
+    ahandle = c_null_ptr
+  end subroutine
+
+  subroutine ms_assembly_n_pieces(ahandle, n, status)
+    type(c_ptr), intent(in) :: ahandle
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_assembly_n_pieces(ahandle, n)
+  end subroutine
+
+  subroutine ms_assembly_piece_atoms(ahandle, piece, atoms, status)
+    type(c_ptr), intent(in) :: ahandle
+    integer(c_int), intent(in) :: piece
+    integer(c_int), intent(out) :: atoms(:)
+    integer(c_int), intent(out) :: status
+    integer(c_int) :: n
+    status = molsymm_assembly_piece_n_atoms(ahandle, piece, n)
+    if (status /= 0) return
+    if (size(atoms) < n) then
+      status = -1
+      return
+    end if
+    status = molsymm_assembly_piece_atoms(ahandle, piece, atoms)
+  end subroutine
+
+  subroutine ms_assemble(ahandle, piece_xyz, xyz_out, status)
+    type(c_ptr), intent(in) :: ahandle
+    real(c_double), intent(in) :: piece_xyz(:,:)  ! (3, n_asym)
+    real(c_double), intent(out) :: xyz_out(:,:)   ! (3, n)
+    integer(c_int), intent(out) :: status
+    real(c_double), allocatable :: flat_in(:), flat_out(:)
+    integer :: nasym, n, i
+    nasym = size(piece_xyz, 2)
+    n = size(xyz_out, 2)
+    allocate(flat_in(3*nasym), flat_out(3*n))
+    do i = 1, nasym
+      flat_in(3*(i-1)+1:3*(i-1)+3) = piece_xyz(:, i)
+    end do
+    status = molsymm_assemble(ahandle, flat_in, flat_out)
+    do i = 1, n
+      xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
+    end do
   end subroutine
 
 end module molsymm

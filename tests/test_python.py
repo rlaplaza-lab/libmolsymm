@@ -127,6 +127,14 @@ def test_synthetic_water() -> None:
     d = a.displacements()
     assert d.n == 6
 
+    frag = a.fragmentation()
+    assert frag.representatives == [0, 1] and frag.mask == [1, 1, 0]
+    assert np.allclose(frag.reconstruct(positions[frag.representatives]), positions, atol=1e-6)
+    asmbl = a.subgroup_assembly("C2v")
+    assert len(asmbl.pieces) == 1
+    pieces = [positions[atoms] for atoms in asmbl.pieces]
+    assert np.allclose(asmbl.assemble(pieces), positions, atol=1e-6)
+
 
 def _synthetic_benzene() -> tuple[list[int], np.ndarray]:
     zs: list[int] = []
@@ -151,6 +159,20 @@ def test_synthetic_benzene_subgroups() -> None:
         b = molsymm.analyze(zs, xyz)
         b.select_subgroup(name)
         assert b.point_group == name and b.order == order
+
+    asmbl = a.subgroup_assembly("C2v")
+    assert len(asmbl.pieces) > 1
+    pieces = [xyz[atoms].copy() for atoms in asmbl.pieces]
+    assert np.allclose(asmbl.assemble(pieces), xyz, atol=1e-6)
+    site = 0
+    for p, atoms in enumerate(asmbl.pieces):
+        for i, _ in enumerate(atoms):
+            if asmbl.free_axes[site]:
+                pieces[p][i] = pieces[p][i] + (0.04 if p == 0 else -0.03) * np.asarray(
+                    asmbl.free_axes[site][0]
+                )
+            site += 1
+    assert not np.allclose(asmbl.assemble(pieces), xyz, atol=1e-3)
 
 
 def test_synthetic_s4() -> None:

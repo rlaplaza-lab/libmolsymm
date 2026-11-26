@@ -45,6 +45,36 @@ program test_fortran
   if (nd /= 6) nfail = nfail + 1
 
   call ms_release_displacements(dhandle)
+
+  block
+    type(c_ptr) :: fhandle, ahandle
+    integer(c_int) :: nrep, npieces
+    real(c_double) :: rep_xyz(3,2), xyz_out(3,3)
+    call ms_fragmentation(handle, fhandle, status)
+    if (status /= 0) then
+      print *, "fragmentation failed: ", ms_last_error()
+      nfail = nfail + 1
+    else
+      call ms_n_representatives(fhandle, nrep, status)
+      if (nrep /= 2) nfail = nfail + 1
+      rep_xyz = xyz(:, 1:2)
+      call ms_reconstruct(fhandle, rep_xyz, xyz_out, status)
+      if (status /= 0 .or. maxval(abs(xyz_out - xyz)) > 1.0d-6) nfail = nfail + 1
+      call ms_release_fragmentation(fhandle)
+    end if
+    call ms_subgroup_assembly(handle, "C2v", ahandle, status)
+    if (status /= 0) then
+      print *, "subgroup_assembly failed: ", ms_last_error()
+      nfail = nfail + 1
+    else
+      call ms_assembly_n_pieces(ahandle, npieces, status)
+      if (npieces /= 1) nfail = nfail + 1
+      call ms_assemble(ahandle, xyz(:, 1:2), xyz_out, status)
+      if (status /= 0 .or. maxval(abs(xyz_out - xyz)) > 1.0d-6) nfail = nfail + 1
+      call ms_release_assembly(ahandle)
+    end if
+  end block
+
   call ms_release(handle)
 
   ! --- z-matrix smoke ---

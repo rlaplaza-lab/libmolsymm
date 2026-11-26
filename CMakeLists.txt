@@ -45,6 +45,7 @@ set(MOLSYMM_SOURCES
   src/subgroups.cpp
   src/symmetrize.cpp
   src/displacements.cpp
+  src/fragment.cpp
   src/c_api.cpp
 )
 

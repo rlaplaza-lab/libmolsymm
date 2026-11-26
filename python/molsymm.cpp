@@ -124,7 +124,14 @@ NB_MODULE(molsymm, m) {
           [](const molsymm::Analysis& a, double step) {
             return molsymm::unique_displacements(a, step);
           },
-          nb::arg("step") = 1e-3);
+          nb::arg("step") = 1e-3)
+      .def("fragmentation", [](const molsymm::Analysis& a) { return molsymm::fragmentation(a); })
+      .def(
+          "subgroup_assembly",
+          [](const molsymm::Analysis& a, const std::string& name) {
+            return molsymm::subgroup_assembly(a, name);
+          },
+          nb::arg("name"));
 
   auto mols_to_xyz = [](const std::vector<molsymm::Molecule>& mols) {
     std::vector<Eigen::MatrixXd> out;
@@ -158,6 +165,100 @@ NB_MODULE(molsymm, m) {
            [](const molsymm::DisplacementSet& d,
               const std::vector<Eigen::VectorXd>& gp,
               const std::vector<Eigen::VectorXd>& gm) { return d.hessian_from_gradients(gp, gm); });
+
+  auto mol_to_xyz = [](const molsymm::Molecule& mol) {
+    Eigen::MatrixXd xyz(mol.size(), 3);
+    for (int i = 0; i < mol.size(); ++i) {
+      xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
+    }
+    return xyz;
+  };
+
+  auto parse_positions = [](const Eigen::MatrixXd& positions, int expected) {
+    Eigen::MatrixXd rows;
+    if (positions.cols() == 3 && positions.rows() == expected) {
+      rows = positions;
+    } else if (positions.rows() == 3 && positions.cols() == expected) {
+      rows = positions.transpose();
+    } else {
+      throw molsymm::Error("positions must be (n,3) or (3,n)");
+    }
+    std::vector<molsymm::Vec3> out(static_cast<std::size_t>(expected));
+    for (int i = 0; i < expected; ++i) {
+      out[static_cast<std::size_t>(i)] = rows.row(i).transpose();
+    }
+    return out;
+  };
+
+  auto free_axes_prop = [](const std::vector<molsymm::FragmentSite>& sites) {
+    std::vector<std::vector<std::vector<double>>> out;
+    out.reserve(sites.size());
+    for (const auto& site : sites) {
+      std::vector<std::vector<double>> axes;
+      axes.reserve(site.free_axes.size());
+      for (const auto& ax : site.free_axes) {
+        axes.push_back({ax.x(), ax.y(), ax.z()});
+      }
+      out.push_back(std::move(axes));
+    }
+    return out;
+  };
+
+  nb::class_<molsymm::Fragmentation>(m, "Fragmentation")
+      .def_ro("representatives", &molsymm::Fragmentation::representatives)
+      .def_prop_ro("copies",
+                   [](const molsymm::Fragmentation& f) {
+                     std::vector<std::vector<int>> out;
+                     out.reserve(f.copies.size());
+                     for (const auto& c : f.copies) {
+                       out.push_back(c.atoms);
+                     }
+                     return out;
+                   })
+      .def_prop_ro("mask",
+                   [](const molsymm::Fragmentation& f) {
+                     return std::vector<int>(f.mask.begin(), f.mask.end());
+                   })
+      .def_prop_ro(
+          "free_axes",
+          [free_axes_prop](const molsymm::Fragmentation& f) { return free_axes_prop(f.sites); })
+      .def(
+          "reconstruct",
+          [mol_to_xyz, parse_positions](const molsymm::Fragmentation& f,
+                                        const Eigen::MatrixXd& positions) {
+            return mol_to_xyz(molsymm::reconstruct(
+                f, parse_positions(positions, static_cast<int>(f.representatives.size()))));
+          },
+          nb::arg("positions"));
+
+  nb::class_<molsymm::SubgroupAssembly>(m, "SubgroupAssembly")
+      .def_ro("subgroup", &molsymm::SubgroupAssembly::subgroup)
+      .def_prop_ro("pieces",
+                   [](const molsymm::SubgroupAssembly& a) {
+                     std::vector<std::vector<int>> out;
+                     out.reserve(a.pieces.size());
+                     for (const auto& p : a.pieces) {
+                       out.push_back(p.atoms);
+                     }
+                     return out;
+                   })
+      .def_prop_ro(
+          "free_axes",
+          [free_axes_prop](const molsymm::SubgroupAssembly& a) { return free_axes_prop(a.sites); })
+      .def(
+          "assemble",
+          [mol_to_xyz, parse_positions](const molsymm::SubgroupAssembly& a, nb::sequence pieces) {
+            if (static_cast<int>(nb::len(pieces)) != static_cast<int>(a.pieces.size())) {
+              throw molsymm::Error("piece count mismatch");
+            }
+            std::vector<std::vector<molsymm::Vec3>> piece_pos(a.pieces.size());
+            for (std::size_t p = 0; p < a.pieces.size(); ++p) {
+              piece_pos[p] = parse_positions(nb::cast<Eigen::MatrixXd>(pieces[p]),
+                                             static_cast<int>(a.pieces[p].atoms.size()));
+            }
+            return mol_to_xyz(molsymm::assemble(a, piece_pos));
+          },
+          nb::arg("pieces"));
 
   m.def(
       "analyze",

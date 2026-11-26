@@ -37,6 +37,14 @@ struct molsymm_displacements {
   molsymm::DisplacementSet set;
 };
 
+struct molsymm_fragmentation {
+  molsymm::Fragmentation frag;
+};
+
+struct molsymm_assembly {
+  molsymm::SubgroupAssembly assembly;
+};
+
 namespace {
 
 thread_local std::string g_error;
@@ -410,6 +418,252 @@ int molsymm_hessian_from_gradients(const molsymm_displacements* d,
     Eigen::MatrixXd H = d->set.hessian_from_gradients(gp, gm);
     Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
         hess_out, n3, n3) = H;
+  });
+}
+
+int molsymm_make_fragmentation(const molsymm_analysis* a, molsymm_fragmentation** out) {
+  return guard([&] {
+    if (!a || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    auto* handle = new molsymm_fragmentation;
+    handle->frag = molsymm::fragmentation(a->a);
+    *out = handle;
+  });
+}
+
+void molsymm_free_fragmentation(molsymm_fragmentation* f) {
+  delete f;
+}
+
+int molsymm_n_representatives(const molsymm_fragmentation* f, int* out) {
+  return guard([&] {
+    if (!f || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    *out = static_cast<int>(f->frag.representatives.size());
+  });
+}
+
+int molsymm_representative_atom(const molsymm_fragmentation* f, int index, int* atom) {
+  return guard([&] {
+    if (!f || !atom) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (index < 0 || index >= static_cast<int>(f->frag.representatives.size())) {
+      throw molsymm::Error("index out of range");
+    }
+    *atom = f->frag.representatives[static_cast<std::size_t>(index)];
+  });
+}
+
+int molsymm_n_copies(const molsymm_fragmentation* f, int* out) {
+  return guard([&] {
+    if (!f || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    *out = static_cast<int>(f->frag.copies.size());
+  });
+}
+
+int molsymm_copy_n_atoms(const molsymm_fragmentation* f, int copy, int* out) {
+  return guard([&] {
+    if (!f || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (copy < 0 || copy >= static_cast<int>(f->frag.copies.size())) {
+      throw molsymm::Error("copy index out of range");
+    }
+    *out = static_cast<int>(f->frag.copies[static_cast<std::size_t>(copy)].atoms.size());
+  });
+}
+
+int molsymm_copy_atoms(const molsymm_fragmentation* f, int copy, int* atoms_out) {
+  return guard([&] {
+    if (!f || !atoms_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (copy < 0 || copy >= static_cast<int>(f->frag.copies.size())) {
+      throw molsymm::Error("copy index out of range");
+    }
+    const auto& atoms = f->frag.copies[static_cast<std::size_t>(copy)].atoms;
+    for (std::size_t i = 0; i < atoms.size(); ++i) {
+      atoms_out[i] = atoms[i];
+    }
+  });
+}
+
+int molsymm_fragment_mask(const molsymm_fragmentation* f, unsigned char* mask_out) {
+  return guard([&] {
+    if (!f || !mask_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    for (std::size_t i = 0; i < f->frag.mask.size(); ++i) {
+      mask_out[i] = f->frag.mask[i];
+    }
+  });
+}
+
+int molsymm_n_free_axes(const molsymm_fragmentation* f, int site, int* out) {
+  return guard([&] {
+    if (!f || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (site < 0 || site >= static_cast<int>(f->frag.sites.size())) {
+      throw molsymm::Error("site index out of range");
+    }
+    *out = static_cast<int>(f->frag.sites[static_cast<std::size_t>(site)].free_axes.size());
+  });
+}
+
+int molsymm_free_axis(const molsymm_fragmentation* f, int site, int axis, double* xyz) {
+  return guard([&] {
+    if (!f || !xyz) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (site < 0 || site >= static_cast<int>(f->frag.sites.size())) {
+      throw molsymm::Error("site index out of range");
+    }
+    const auto& axes = f->frag.sites[static_cast<std::size_t>(site)].free_axes;
+    if (axis < 0 || axis >= static_cast<int>(axes.size())) {
+      throw molsymm::Error("axis index out of range");
+    }
+    const auto& v = axes[static_cast<std::size_t>(axis)];
+    xyz[0] = v.x();
+    xyz[1] = v.y();
+    xyz[2] = v.z();
+  });
+}
+
+int molsymm_reconstruct(const molsymm_fragmentation* f, const double* rep_xyz, double* xyz_out) {
+  return guard([&] {
+    if (!f || !rep_xyz || !xyz_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    const int nrep = static_cast<int>(f->frag.representatives.size());
+    std::vector<molsymm::Vec3> reps(static_cast<std::size_t>(nrep));
+    for (int i = 0; i < nrep; ++i) {
+      reps[static_cast<std::size_t>(i)] =
+          molsymm::Vec3(rep_xyz[3 * i], rep_xyz[3 * i + 1], rep_xyz[3 * i + 2]);
+    }
+    molsymm::Molecule mol = molsymm::reconstruct(f->frag, reps);
+    for (int i = 0; i < mol.size(); ++i) {
+      const auto& p = mol.atoms[static_cast<std::size_t>(i)].position;
+      xyz_out[3 * i] = p.x();
+      xyz_out[3 * i + 1] = p.y();
+      xyz_out[3 * i + 2] = p.z();
+    }
+  });
+}
+
+int molsymm_subgroup_assembly(const molsymm_analysis* a,
+                              const char* subgroup,
+                              molsymm_assembly** out) {
+  return guard([&] {
+    if (!a || !subgroup || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    auto* handle = new molsymm_assembly;
+    handle->assembly = molsymm::subgroup_assembly(a->a, subgroup);
+    *out = handle;
+  });
+}
+
+void molsymm_free_assembly(molsymm_assembly* asm_) {
+  delete asm_;
+}
+
+int molsymm_assembly_n_pieces(const molsymm_assembly* asm_, int* out) {
+  return guard([&] {
+    if (!asm_ || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    *out = static_cast<int>(asm_->assembly.pieces.size());
+  });
+}
+
+int molsymm_assembly_piece_n_atoms(const molsymm_assembly* asm_, int piece, int* out) {
+  return guard([&] {
+    if (!asm_ || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (piece < 0 || piece >= static_cast<int>(asm_->assembly.pieces.size())) {
+      throw molsymm::Error("piece index out of range");
+    }
+    *out = static_cast<int>(asm_->assembly.pieces[static_cast<std::size_t>(piece)].atoms.size());
+  });
+}
+
+int molsymm_assembly_piece_atoms(const molsymm_assembly* asm_, int piece, int* atoms_out) {
+  return guard([&] {
+    if (!asm_ || !atoms_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (piece < 0 || piece >= static_cast<int>(asm_->assembly.pieces.size())) {
+      throw molsymm::Error("piece index out of range");
+    }
+    const auto& atoms = asm_->assembly.pieces[static_cast<std::size_t>(piece)].atoms;
+    for (std::size_t i = 0; i < atoms.size(); ++i) {
+      atoms_out[i] = atoms[i];
+    }
+  });
+}
+
+int molsymm_assembly_n_free_axes(const molsymm_assembly* asm_, int site, int* out) {
+  return guard([&] {
+    if (!asm_ || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (site < 0 || site >= static_cast<int>(asm_->assembly.sites.size())) {
+      throw molsymm::Error("site index out of range");
+    }
+    *out = static_cast<int>(asm_->assembly.sites[static_cast<std::size_t>(site)].free_axes.size());
+  });
+}
+
+int molsymm_assembly_free_axis(const molsymm_assembly* asm_, int site, int axis, double* xyz) {
+  return guard([&] {
+    if (!asm_ || !xyz) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (site < 0 || site >= static_cast<int>(asm_->assembly.sites.size())) {
+      throw molsymm::Error("site index out of range");
+    }
+    const auto& axes = asm_->assembly.sites[static_cast<std::size_t>(site)].free_axes;
+    if (axis < 0 || axis >= static_cast<int>(axes.size())) {
+      throw molsymm::Error("axis index out of range");
+    }
+    const auto& v = axes[static_cast<std::size_t>(axis)];
+    xyz[0] = v.x();
+    xyz[1] = v.y();
+    xyz[2] = v.z();
+  });
+}
+
+int molsymm_assemble(const molsymm_assembly* asm_, const double* piece_xyz, double* xyz_out) {
+  return guard([&] {
+    if (!asm_ || !piece_xyz || !xyz_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    std::vector<std::vector<molsymm::Vec3>> pieces(asm_->assembly.pieces.size());
+    int offset = 0;
+    for (std::size_t p = 0; p < asm_->assembly.pieces.size(); ++p) {
+      const int na = static_cast<int>(asm_->assembly.pieces[p].atoms.size());
+      pieces[p].resize(static_cast<std::size_t>(na));
+      for (int i = 0; i < na; ++i) {
+        pieces[p][static_cast<std::size_t>(i)] = molsymm::Vec3(piece_xyz[3 * (offset + i)],
+                                                               piece_xyz[3 * (offset + i) + 1],
+                                                               piece_xyz[3 * (offset + i) + 2]);
+      }
+      offset += na;
+    }
+    molsymm::Molecule mol = molsymm::assemble(asm_->assembly, pieces);
+    for (int i = 0; i < mol.size(); ++i) {
+      const auto& p = mol.atoms[static_cast<std::size_t>(i)].position;
+      xyz_out[3 * i] = p.x();
+      xyz_out[3 * i + 1] = p.y();
+      xyz_out[3 * i + 2] = p.z();
+    }
   });
 }
 

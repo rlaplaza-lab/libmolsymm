@@ -1137,6 +1137,138 @@ void test_zmatrix() {
          "zero-length bond reference throws");
 }
 
+bool geometry_matches_ops(const molsymm::Analysis& a, const molsymm::Molecule& mol, double tol) {
+  for (const auto& op : a.operations) {
+    if (static_cast<int>(op.image.size()) != mol.size()) {
+      return false;
+    }
+    for (int i = 0; i < mol.size(); ++i) {
+      const molsymm::Vec3 pi =
+          a.orientation * (mol.atoms[static_cast<std::size_t>(i)].position - a.center_of_mass);
+      const int j = op.image[static_cast<std::size_t>(i)];
+      const molsymm::Vec3 pj =
+          a.orientation * (mol.atoms[static_cast<std::size_t>(j)].position - a.center_of_mass);
+      if ((op.matrix * pi - pj).norm() > tol) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+std::vector<molsymm::Vec3> input_positions(const molsymm::Analysis& a,
+                                           const std::vector<int>& atoms) {
+  std::vector<molsymm::Vec3> out;
+  out.reserve(atoms.size());
+  for (int atom : atoms) {
+    out.push_back(a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(atom)].position));
+  }
+  return out;
+}
+
+double rms_vs_analysis(const molsymm::Analysis& a, const molsymm::Molecule& mol) {
+  double sum = 0.0;
+  for (int i = 0; i < a.molecule.size(); ++i) {
+    const molsymm::Vec3 p =
+        a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(i)].position);
+    sum += (mol.atoms[static_cast<std::size_t>(i)].position - p).squaredNorm();
+  }
+  return std::sqrt(sum / std::max(a.molecule.size(), 1));
+}
+
+void test_fragmentation() {
+  {
+    auto a = molsymm::analyze(water());
+    auto frag = molsymm::fragmentation(a);
+    expect(frag.representatives == std::vector<int>({0, 1}), "water representatives");
+    expect(frag.mask.size() == 3 && frag.mask[0] && frag.mask[1] && !frag.mask[2], "water mask");
+    int covered = 0;
+    std::vector<char> seen(3, 0);
+    for (const auto& c : frag.copies) {
+      for (int atom : c.atoms) {
+        expect(!seen[static_cast<std::size_t>(atom)], "water copies disjoint");
+        seen[static_cast<std::size_t>(atom)] = 1;
+        ++covered;
+      }
+    }
+    expect(covered == 3, "water copies cover all atoms");
+
+    auto reps = input_positions(a, frag.representatives);
+    expect(rms_vs_analysis(a, molsymm::reconstruct(frag, reps)) < 1e-10,
+           "water reconstruct matches analysis");
+    reps[1] += molsymm::Vec3(0.25, 0.0, 0.0);
+    expect(geometry_matches_ops(a, molsymm::reconstruct(frag, reps), 1e-8),
+           "water rattle snaps to G");
+
+    auto full = molsymm::subgroup_assembly(a, "C2v");
+    expect(full.pieces.size() == 1, "water C2v assembly is one piece");
+    expect(rms_vs_analysis(a, molsymm::assemble(full, {input_positions(a, full.pieces[0].atoms)})) <
+               1e-10,
+           "water full-group assemble matches");
+  }
+
+  {
+    auto a = molsymm::analyze(methane());
+    auto frag = molsymm::fragmentation(a);
+    expect(frag.sites[0].free_axes.empty() && frag.sites[1].free_axes.size() == 1,
+           "methane free axes C:0 H:1");
+    auto reps = input_positions(a, frag.representatives);
+    auto carbon = reps;
+    carbon[0] += molsymm::Vec3(0.1, -0.05, 0.02);
+    expect(
+        (a.orientation * (molsymm::reconstruct(frag, carbon).atoms[0].position - a.center_of_mass))
+                .norm() < 1e-10,
+        "methane carbon rattle projects to origin");
+    reps[1] += 0.05 * frag.sites[1].free_axes[0];
+    auto mol_h = molsymm::reconstruct(frag, reps);
+    expect(geometry_matches_ops(a, mol_h, 1e-8), "methane H rattle stays Td");
+    const double r1 = (a.orientation * (mol_h.atoms[1].position - a.center_of_mass)).norm();
+    for (int i = 2; i < 5; ++i) {
+      expect(std::abs((a.orientation *
+                       (mol_h.atoms[static_cast<std::size_t>(i)].position - a.center_of_mass))
+                          .norm() -
+                      r1) < 1e-8,
+             "methane H rattle copied across orbit");
+    }
+  }
+
+  {
+    auto a = molsymm::analyze(benzene());
+    auto asmbl = molsymm::subgroup_assembly(a, "C2v");
+    expect(asmbl.pieces.size() > 1, "benzene C2v has multiple pieces");
+    std::vector<std::vector<molsymm::Vec3>> pieces;
+    for (const auto& p : asmbl.pieces) {
+      pieces.push_back(input_positions(a, p.atoms));
+    }
+    expect(rms_vs_analysis(a, molsymm::assemble(asmbl, pieces)) < 1e-10,
+           "benzene assemble of originals matches");
+
+    std::size_t site = 0;
+    for (std::size_t p = 0; p < pieces.size(); ++p) {
+      for (std::size_t i = 0; i < pieces[p].size(); ++i, ++site) {
+        if (!asmbl.sites[site].free_axes.empty()) {
+          pieces[p][i] += (p == 0 ? 0.04 : -0.03) * asmbl.sites[site].free_axes[0];
+        }
+      }
+    }
+    auto mol_r = molsymm::assemble(asmbl, pieces);
+    molsymm::Analysis sub = a;
+    sub.select_subgroup("C2v");
+    expect(geometry_matches_ops(sub, mol_r, 1e-7), "benzene dual-rattle is C2v");
+    expect(!geometry_matches_ops(a, mol_r, 1e-4), "benzene dual-rattle breaks D6h");
+  }
+
+  expect(throws_error([] { (void)molsymm::fragmentation(molsymm::analyze(co())); }),
+         "Cinfv fragmentation throws");
+  {
+    molsymm::Molecule m;
+    m.atoms.push_back({10, {0, 0, 0}, 0});
+    m.resolve_masses();
+    expect(throws_error([&] { (void)molsymm::fragmentation(molsymm::analyze(m)); }),
+           "Kh fragmentation throws");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -1153,6 +1285,7 @@ int main() {
     test_xyz_slight_rattle();
     test_xyz_large_rattle();
     test_zmatrix();
+    test_fragmentation();
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;
