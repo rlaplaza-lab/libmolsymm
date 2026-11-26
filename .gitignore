@@ -1,6 +1,8 @@
 build/
 build-lint/
 build-*/
+.lint-env/
+.lint-sys/
 cmake-build-*/
 dist/
 *.o

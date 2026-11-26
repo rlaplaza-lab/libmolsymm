@@ -267,8 +267,24 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
     }
   }
   expect(all_one, label + " totally symmetric row is +1 on every class");
-  if (is_pure_cn_or_sn(a.point_group) || ct.irrep_dims.empty()) {
+  if (ct.irrep_dims.empty()) {
     return;
+  }
+  // Real Mulliken tables for Cn/Sn/Cnh (n≥3) and T/Th fold complex E pairs into
+  // real 1E/2E or one 2D E, so Σ dim² / complex orthogonality do not hold.
+  if (is_pure_cn_or_sn(a.point_group) || a.point_group == "T" || a.point_group == "Th") {
+    return;
+  }
+  if (a.point_group.size() >= 3 && a.point_group[0] == 'C' && a.point_group.back() == 'h') {
+    int n_ax = 0;
+    for (char ch : a.point_group) {
+      if (ch >= '0' && ch <= '9') {
+        n_ax = n_ax * 10 + (ch - '0');
+      }
+    }
+    if (n_ax >= 3) {
+      return;
+    }
   }
   int dim2 = 0;
   for (int d : ct.irrep_dims) {
@@ -276,6 +292,26 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
   }
   expect(dim2 == a.order,
          label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
+
+  // Great orthogonality: (1/|G|) Σ_c |c| χ_i(c) χ_j(c) = δ_ij
+  if (ct.class_sizes.size() == ct.characters.front().size()) {
+    const int nir = static_cast<int>(ct.irrep_names.size());
+    const int ncl = static_cast<int>(ct.class_sizes.size());
+    for (int i = 0; i < nir; ++i) {
+      for (int j = i; j < nir; ++j) {
+        double sum = 0.0;
+        for (int c = 0; c < ncl; ++c) {
+          sum += static_cast<double>(ct.class_sizes[static_cast<std::size_t>(c)]) *
+                 ct.characters[static_cast<std::size_t>(i)][static_cast<std::size_t>(c)] *
+                 ct.characters[static_cast<std::size_t>(j)][static_cast<std::size_t>(c)];
+        }
+        const double want = (i == j) ? static_cast<double>(a.order) : 0.0;
+        expect(std::abs(sum - want) < 1e-6,
+               label + " orthogonality " + ct.irrep_names[static_cast<std::size_t>(i)] + "/" +
+                   ct.irrep_names[static_cast<std::size_t>(j)] + " got " + std::to_string(sum));
+      }
+    }
+  }
 }
 
 bool operations_form_finite_group(const molsymm::Analysis& a) {
@@ -326,13 +362,60 @@ void test_subgroups_and_table() {
          "D6h subgroups include D6, C6v, C2v");
   expect(operations_form_finite_group(a), "benzene closed group");
   expect_character_table_consistent(a, "benzene");
+  {
+    // Group orbits: 6 C + 6 H.
+    expect(a.equivalence_sets.size() == 2, "benzene has 2 equivalence sets");
+    std::vector<int> sizes;
+    sizes.reserve(a.equivalence_sets.size());
+    for (const auto& s : a.equivalence_sets) {
+      sizes.push_back(static_cast<int>(s.atoms.size()));
+    }
+    std::sort(sizes.begin(), sizes.end());
+    expect(sizes.size() == 2 && sizes[0] == 6 && sizes[1] == 6, "benzene orbits are 6+6");
+  }
 
-  for (const auto& [name, order] : {std::pair{"D6", 12}, {"C6v", 12}, {"C2", 2}, {"C3", 3}}) {
+  for (const auto& [name, order] :
+       {std::pair{"D6", 12}, {"C6v", 12}, {"C2", 2}, {"C3", 3}, {"D2", 4}, {"C2v", 4}}) {
     auto sub = a;
     sub.select_subgroup(name);
     expect(sub.point_group == name && sub.order == order,
            std::string("benzene select_subgroup ") + name);
+    expect(operations_form_finite_group(sub), std::string("benzene/") + name + " closed");
     expect_character_table_consistent(sub, std::string("benzene/") + name);
+  }
+
+  {
+    // Cotton D6h: E_1g(σh) = -2, A2g(σh) = +1
+    const auto& ct = a.character_table;
+    int i_e1g = -1;
+    int i_a2g = -1;
+    int c_sigh = -1;
+    for (std::size_t i = 0; i < ct.irrep_names.size(); ++i) {
+      if (ct.irrep_names[i] == "E_1g") {
+        i_e1g = static_cast<int>(i);
+      }
+      if (ct.irrep_names[i] == "A2g") {
+        i_a2g = static_cast<int>(i);
+      }
+    }
+    for (const auto& op : a.operations) {
+      if (op.kind == molsymm::OperationKind::Reflection &&
+          op.plane == molsymm::PlaneKind::Horizontal) {
+        c_sigh = op.class_index;
+        break;
+      }
+    }
+    expect(i_e1g >= 0 && i_a2g >= 0 && c_sigh >= 0, "benzene E_1g/A2g/σh indices");
+    if (i_e1g >= 0 && i_a2g >= 0 && c_sigh >= 0) {
+      expect(std::abs(
+                 ct.characters[static_cast<std::size_t>(i_e1g)][static_cast<std::size_t>(c_sigh)] +
+                 2.0) < 1e-6,
+             "benzene E_1g(σh) = -2");
+      expect(std::abs(
+                 ct.characters[static_cast<std::size_t>(i_a2g)][static_cast<std::size_t>(c_sigh)] -
+                 1.0) < 1e-6,
+             "benzene A2g(σh) = +1");
+    }
   }
 
   {
@@ -342,6 +425,17 @@ void test_subgroups_and_table() {
                                          "/iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz"),
                                 tol);
     expect(d3h.point_group == "D3h", "cyclopropane is D3h got " + d3h.point_group);
+    expect_character_table_consistent(d3h, "cyclopropane");
+    {
+      const auto& names = d3h.character_table.irrep_names;
+      const bool has_prime = std::any_of(names.begin(), names.end(), [](const std::string& s) {
+        return !s.empty() && s.back() == '\'';
+      });
+      const bool has_g = std::any_of(names.begin(), names.end(), [](const std::string& s) {
+        return !s.empty() && s.back() == 'g';
+      });
+      expect(has_prime && !has_g, "odd D3h uses '/'' not g/u");
+    }
     expect(has_subgroup(d3h, "C2v") && !has_subgroup(d3h, "Ci") && !has_subgroup(d3h, "D2h"),
            "D3h subgroups");
     auto dn = d3h;
@@ -349,6 +443,8 @@ void test_subgroups_and_table() {
     expect(dn.point_group == "D3" && dn.order == 6 && has_subgroup(dn, "C2") &&
                !has_subgroup(dn, "C2v"),
            "D3 from D3h");
+    dn.select_subgroup("C3");
+    expect(dn.point_group == "C3" && dn.order == 3, "D3→C3 order 3");
   }
 
   auto m = molsymm::analyze(methane());
@@ -459,6 +555,174 @@ void test_displacements_methane() {
   auto d = molsymm::unique_displacements(a, 1e-3);
   expect(static_cast<int>(d.displacements.size()) == 3,
          "methane has 3 unique displacements, got " + std::to_string(d.displacements.size()));
+
+  // Planted Hessian rebuild for a degenerate Td orbit.
+  const int n = a.original.size();
+  const int n3 = 3 * n;
+  Eigen::MatrixXd H = Eigen::MatrixXd::Identity(n3, n3);
+  H = molsymm::symmetrize_hessian(a, H);
+  auto grad = [&](const molsymm::Molecule& m) {
+    Eigen::VectorXd x(n3);
+    for (int i = 0; i < n; ++i) {
+      molsymm::Vec3 dr = m.atoms[static_cast<std::size_t>(i)].position -
+                         a.original.atoms[static_cast<std::size_t>(i)].position;
+      x.segment<3>(3 * i) = dr;
+    }
+    return Eigen::VectorXd(H * x);
+  };
+  std::vector<Eigen::VectorXd> gp(d.displacements.size());
+  std::vector<Eigen::VectorXd> gm(d.displacements.size());
+  for (std::size_t u = 0; u < d.displacements.size(); ++u) {
+    gp[u] = grad(d.plus[u]);
+    gm[u] = grad(d.minus[u]);
+  }
+  Eigen::MatrixXd H_rec = d.hessian_from_gradients(gp, gm);
+  H_rec = molsymm::symmetrize_hessian(a, H_rec);
+  const double err = (H_rec - H).norm() / (H.norm() + 1e-15);
+  expect(err < 1e-6, "methane hessian rebuild relative err " + std::to_string(err));
+}
+
+void test_project_external_linear() {
+  // Axis exactly along +x: old UnitX/UnitY projection drops a rotational mode.
+  molsymm::Molecule mol = co2();
+  for (auto& atom : mol.atoms) {
+    const double z = atom.position.z();
+    atom.position.x() = z;
+    atom.position.z() = 0.0;
+  }
+  auto a = molsymm::analyze(mol);
+  expect(a.point_group == "Dinfh" && a.linear, "CO2 on x is Dinfh");
+
+  const int n = a.original.size();
+  const int n3 = 3 * n;
+  Eigen::MatrixXd H = Eigen::MatrixXd::Identity(n3, n3);
+  H = molsymm::project_external(a, H);
+
+  const molsymm::Vec3 com = a.center_of_mass;
+  const molsymm::Mat3 Rinv = a.orientation.transpose();
+  const molsymm::Vec3 axis = (Rinv * molsymm::Vec3::UnitZ()).normalized();
+  expect(std::abs(std::abs(axis.x()) - 1.0) < 1e-6, "oriented molecular axis along ±x");
+
+  auto rot_about = [&](const molsymm::Vec3& ax) {
+    Eigen::VectorXd r = Eigen::VectorXd::Zero(n3);
+    for (int i = 0; i < n; ++i) {
+      molsymm::Vec3 pos = a.original.atoms[static_cast<std::size_t>(i)].position - com;
+      r.segment<3>(3 * i) = ax.cross(pos);
+    }
+    return r;
+  };
+  int rot_checked = 0;
+  const molsymm::Vec3 frame_axes[2] = {molsymm::Vec3::UnitX(), molsymm::Vec3::UnitY()};
+  for (const molsymm::Vec3& frame_ax : frame_axes) {
+    Eigen::VectorXd r = rot_about(Rinv * frame_ax);
+    if (r.norm() < 1e-8) {
+      continue;
+    }
+    r.normalize();
+    const double resid = (H * r).norm();
+    expect(resid < 1e-8, "linear rot mode in kernel, resid=" + std::to_string(resid));
+    ++rot_checked;
+  }
+  expect(rot_checked == 2, "both analysis-frame perp rotations are nontrivial");
+
+  Eigen::VectorXd stretch = Eigen::VectorXd::Zero(n3);
+  for (int i = 0; i < n; ++i) {
+    molsymm::Vec3 pos = a.original.atoms[static_cast<std::size_t>(i)].position - com;
+    const double along = pos.dot(axis);
+    if (std::abs(along) > 1e-8) {
+      stretch.segment<3>(3 * i) = axis * (along > 0 ? 1.0 : -1.0);
+    }
+  }
+  expect(stretch.norm() > 1e-8, "axial stretch mode exists");
+  stretch.normalize();
+  expect((H * stretch).norm() > 0.5, "axial stretch not projected out");
+}
+
+void test_character_tables_spot() {
+  {
+    auto a = molsymm::analyze(sf6());
+    expect(a.point_group == "Oh", "SF6 Oh");
+    expect_character_table_consistent(a, "SF6");
+    // C4^2 must land in the face-axis 3C2 class, not 6C4.
+    bool saw_c4sq_as_3c2 = false;
+    for (const auto& op : a.operations) {
+      if (op.kind == molsymm::OperationKind::ProperRotation && op.order == 4 &&
+          (op.power == 2 || std::abs(op.matrix.trace() + 1.0) < 1e-4)) {
+        expect(op.class_index >= 0 &&
+                   static_cast<std::size_t>(op.class_index) < a.character_table.class_labels.size(),
+               "Oh C4^2 has class label");
+        expect(a.character_table.class_labels[static_cast<std::size_t>(op.class_index)].find(
+                   "3C2") != std::string::npos,
+               "Oh C4^2 labeled 3C2, got " +
+                   a.character_table.class_labels[static_cast<std::size_t>(op.class_index)]);
+        saw_c4sq_as_3c2 = true;
+        break;
+      }
+    }
+    expect(saw_c4sq_as_3c2, "Oh has a C4^2 element");
+  }
+  {
+    auto a = molsymm::analyze(allene());
+    expect(a.point_group == "D2d", "allene D2d");
+    expect_character_table_consistent(a, "allene");
+  }
+  {
+    // Ethylene glycol C2h from corpus
+    molsymm::Tolerances tol;
+    tol.primary = 1e-3;
+    auto a = molsymm::analyze(load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) +
+                                       "/iqmol/Molecules/Alcohols/Ethelene_Glycol.xyz"),
+                              tol);
+    expect(a.point_group == "C2h", "ethylene glycol C2h got " + a.point_group);
+    expect_character_table_consistent(a, "C2h");
+    const auto& names = a.character_table.irrep_names;
+    expect(std::find(names.begin(), names.end(), "Ag") != names.end() &&
+               std::find(names.begin(), names.end(), "Bu") != names.end(),
+           "C2h uses g/u names");
+  }
+  {
+    auto a = molsymm::analyze(allene());
+    a.select_subgroup("S4");
+    expect(a.point_group == "S4" && a.order == 4, "allene→S4");
+    expect_character_table_consistent(a, "S4");
+    // Cotton S4: B = (1, -1, 1, -1) on (E, S4, C2, S4^3)
+    const auto& ct = a.character_table;
+    int i_b = -1;
+    for (std::size_t i = 0; i < ct.irrep_names.size(); ++i) {
+      if (ct.irrep_names[i] == "B") {
+        i_b = static_cast<int>(i);
+      }
+    }
+    expect(i_b >= 0, "S4 has B");
+    if (i_b >= 0) {
+      for (const auto& op : a.operations) {
+        if (op.kind == molsymm::OperationKind::ImproperRotation && op.order == 4) {
+          expect(std::abs(ct.characters[static_cast<std::size_t>(i_b)]
+                                       [static_cast<std::size_t>(op.class_index)] +
+                          1.0) < 1e-6,
+                 "S4 B(S4) = -1");
+          break;
+        }
+      }
+    }
+  }
+  {
+    molsymm::Tolerances tol;
+    tol.primary = 1e-3;
+    auto a = molsymm::analyze(
+        load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) + "/iqmol/Molecules/Coordination/4-Planar.xyz"),
+        tol);
+    expect(a.point_group == "D4h", "4-planar D4h got " + a.point_group);
+    expect_character_table_consistent(a, "D4h");
+  }
+  {
+    molsymm::Tolerances tol;
+    tol.primary = 3e-3;
+    auto a = molsymm::analyze(
+        load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) + "/iqmol/Molecules/Alkanes/Ethane.xyz"), tol);
+    expect(a.point_group == "D3d", "ethane D3d got " + a.point_group);
+    expect_character_table_consistent(a, "D3d");
+  }
 }
 
 struct ManifestRow {
@@ -578,7 +842,8 @@ void test_high_symmetry_counts() {
   };
   check_nd("iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", 1e-3, 2);
   check_nd("iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", 1e-2, 3);
-  check_nd("iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz", 1e-4, 8);
+  // Ih: one carbon orbit; site-unique directions span R^3 → 3 unique Cartesians.
+  check_nd("iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz", 1e-4, 3);
 
   molsymm::Tolerances tol;
   tol.primary = 1e-4;
@@ -878,8 +1143,10 @@ int main() {
   try {
     test_point_groups();
     test_subgroups_and_table();
+    test_character_tables_spot();
     test_displacements_water();
     test_displacements_methane();
+    test_project_external_linear();
     test_inertia_frame_stable();
     test_high_symmetry_counts();
     test_xyz_corpus();

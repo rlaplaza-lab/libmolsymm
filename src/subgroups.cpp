@@ -223,6 +223,162 @@ static int expected_group_order(const std::string& name, int n) {
 } // namespace molsymm::detail
 
 namespace molsymm {
+namespace {
+
+// Slightly loose: parent geometries may be imperfect (e.g. cyclopropane at 1e-2 Å).
+constexpr double kSubgroupMatTol = 5e-3;
+
+bool is_cn_generator(const Operation& op, int cn) {
+  if (op.kind != OperationKind::ProperRotation || cn < 2 || !detail::axis_on_z(op)) {
+    return false;
+  }
+  // Primitive Cn^1, including Cn stored as a higher-axis power (C6^2 → C3).
+  if (op.order == cn && (op.power == 1 || op.power == cn - 1)) {
+    return true;
+  }
+  if (op.order > cn && op.order % cn == 0 && op.power > 0) {
+    const int step = op.order / cn;
+    return op.power == step || op.power == op.order - step;
+  }
+  const double ang = std::acos(std::clamp((op.matrix.trace() - 1.0) * 0.5, -1.0, 1.0));
+  return std::abs(ang - 2.0 * detail::kPi / cn) < 1e-3;
+}
+
+const Operation* find_in_parent(const std::vector<Operation>& parent, const Mat3& M) {
+  for (const Operation& op : parent) {
+    if (detail::matrices_equal(op.matrix, M, kSubgroupMatTol)) {
+      return &op;
+    }
+  }
+  return nullptr;
+}
+
+/// Close a generating set inside the parent by matching products to parent elements.
+std::vector<Operation> close_inside_parent(const std::vector<Operation>& parent,
+                                           const std::vector<Operation>& gens) {
+  std::vector<Operation> kept;
+  kept.reserve(parent.size());
+  for (const Operation& g : gens) {
+    const Operation* hit = find_in_parent(parent, g.matrix);
+    if (hit != nullptr) {
+      kept.push_back(*hit);
+    }
+  }
+  for (const Operation& op : parent) {
+    if (op.kind == OperationKind::Identity) {
+      kept.push_back(op);
+      break;
+    }
+  }
+  detail::dedupe_operations(kept, kSubgroupMatTol);
+
+  bool grew = true;
+  while (grew) {
+    grew = false;
+    const int n = static_cast<int>(kept.size());
+    for (int i = 0; i < n && !grew; ++i) {
+      for (int j = 0; j < n; ++j) {
+        const Mat3 M =
+            kept[static_cast<std::size_t>(i)].matrix * kept[static_cast<std::size_t>(j)].matrix;
+        if (find_in_parent(kept, M) != nullptr) {
+          continue;
+        }
+        const Operation* hit = find_in_parent(parent, M);
+        if (hit == nullptr) {
+          continue;
+        }
+        kept.push_back(*hit);
+        grew = true;
+        break;
+      }
+    }
+  }
+  return kept;
+}
+
+std::vector<Operation>
+seed_generators(const std::string& name, int n, const std::vector<Operation>& parent) {
+  std::vector<Operation> gens;
+
+  auto add_first = [&](auto pred) {
+    for (const Operation& op : parent) {
+      if (pred(op)) {
+        gens.push_back(op);
+        return true;
+      }
+    }
+    return false;
+  };
+
+  if (name == "Cs") {
+    add_first([](const Operation& op) { return op.kind == OperationKind::Reflection; });
+    return gens;
+  }
+  if (name == "Ci") {
+    add_first([](const Operation& op) { return op.kind == OperationKind::Inversion; });
+    return gens;
+  }
+  if (name == "T") {
+    // C3 + face-axis C2 (parallel to a C4 in O/Oh); else any C2 (Td/Th).
+    add_first([](const Operation& op) {
+      return op.kind == OperationKind::ProperRotation && op.order == 3;
+    });
+    if (!add_first([&](const Operation& op) {
+          return op.kind == OperationKind::ProperRotation && op.order == 2 &&
+                 detail::axis_parallel_to_c4(op.axis, parent);
+        })) {
+      add_first([](const Operation& op) {
+        return op.kind == OperationKind::ProperRotation && op.order == 2;
+      });
+    }
+    return gens;
+  }
+  if (!name.empty() && name[0] == 'S' && n >= 2) {
+    add_first([&](const Operation& op) {
+      return op.kind == OperationKind::ImproperRotation && detail::axis_on_z(op) && op.order == n &&
+             op.power == 1;
+    });
+    return gens;
+  }
+  if (!name.empty() && name[0] == 'C' && name.back() != 's' && name.back() != 'i') {
+    add_first([&](const Operation& op) { return is_cn_generator(op, n); });
+    if (name.back() == 'v') {
+      add_first([](const Operation& op) {
+        return op.kind == OperationKind::Reflection &&
+               (op.plane == PlaneKind::Vertical || op.plane == PlaneKind::Dihedral);
+      });
+    }
+    if (name.back() == 'h') {
+      add_first([](const Operation& op) {
+        return op.kind == OperationKind::Reflection && op.plane == PlaneKind::Horizontal;
+      });
+    }
+    return gens;
+  }
+  if (!name.empty() && name[0] == 'D') {
+    if (n >= 2) {
+      add_first([&](const Operation& op) { return is_cn_generator(op, n); });
+    }
+    add_first([&](const Operation& op) {
+      return op.kind == OperationKind::ProperRotation && op.order == 2 && !detail::axis_on_z(op);
+    });
+    if (name.back() == 'h') {
+      add_first([](const Operation& op) {
+        return op.kind == OperationKind::Reflection && op.plane == PlaneKind::Horizontal;
+      });
+    }
+    if (name.back() == 'd') {
+      add_first([](const Operation& op) {
+        return op.kind == OperationKind::Reflection &&
+               (op.plane == PlaneKind::Dihedral || op.plane == PlaneKind::Vertical);
+      });
+    }
+    return gens;
+  }
+  return gens;
+}
+
+} // namespace
 
 void Analysis::select_subgroup(const std::string& name) {
   auto it = std::find(subgroups.begin(), subgroups.end(), name);
@@ -248,91 +404,8 @@ void Analysis::select_subgroup(const std::string& name) {
   }
 
   const int n = detail::parse_n(name);
-
-  auto axis_on_z = [](const Operation& op) {
-    return op.axis.norm() > 1e-12 && std::abs(op.axis.normalized().dot(Vec3::UnitZ())) > 0.9;
-  };
-  auto angle_in_cn = [](const Operation& op, int cn) {
-    if (cn <= 1 || op.kind != OperationKind::ProperRotation) {
-      return false;
-    }
-    if (op.power > 0 && op.order > 0 && (op.order % cn == 0)) {
-      return (op.power % (op.order / cn)) == 0;
-    }
-    const double c = std::clamp((op.matrix.trace() - 1.0) * 0.5, -1.0, 1.0);
-    const double ang = std::acos(c);
-    for (int k = 1; k < cn; ++k) {
-      if (std::abs(ang - 2.0 * detail::kPi * k / cn) < 1e-3) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  std::vector<Operation> kept;
-  for (const Operation& op : operations) {
-    if (op.kind == OperationKind::Identity) {
-      kept.push_back(op);
-      continue;
-    }
-    if (name == "T") {
-      // Rotation subgroup of Td / Th: drop improper elements.
-      if (op.kind == OperationKind::ProperRotation) {
-        kept.push_back(op);
-      }
-      continue;
-    }
-    if (name == "Cs" && op.kind == OperationKind::Reflection) {
-      kept.push_back(op);
-      break;
-    }
-    if (name == "Ci" && op.kind == OperationKind::Inversion) {
-      kept.push_back(op);
-      continue;
-    }
-    if (!name.empty() && name[0] == 'S' && n >= 2) {
-      const bool keep_sn =
-          (op.kind == OperationKind::ImproperRotation && axis_on_z(op) &&
-           (op.order == n || (op.order > 0 && n % op.order == 0))) ||
-          (op.kind == OperationKind::ProperRotation && axis_on_z(op) && angle_in_cn(op, n / 2)) ||
-          (n % 2 == 0 && op.kind == OperationKind::Inversion && (n / 2) % 2 == 1);
-      if (keep_sn) {
-        kept.push_back(op);
-      }
-      continue;
-    }
-    if (!name.empty() && name[0] == 'C' && name.back() != 's' && name.back() != 'i') {
-      if (op.kind == OperationKind::ProperRotation && n > 0 && axis_on_z(op) &&
-          angle_in_cn(op, n)) {
-        kept.push_back(op);
-      }
-      if (name.back() == 'v' && op.kind == OperationKind::Reflection &&
-          (op.plane == PlaneKind::Vertical || op.plane == PlaneKind::Dihedral)) {
-        kept.push_back(op);
-      }
-      if (name.back() == 'h' &&
-          ((op.kind == OperationKind::Reflection && op.plane == PlaneKind::Horizontal) ||
-           (op.kind == OperationKind::Inversion && n % 2 == 0))) {
-        kept.push_back(op);
-      }
-    }
-    if (!name.empty() && name[0] == 'D') {
-      if (op.kind == OperationKind::ProperRotation) {
-        kept.push_back(op);
-      }
-      if (name.back() == 'h' &&
-          (op.kind == OperationKind::Reflection || op.kind == OperationKind::Inversion)) {
-        kept.push_back(op);
-      }
-      if (name.back() == 'd' &&
-          (op.kind == OperationKind::Reflection || op.kind == OperationKind::ImproperRotation ||
-           (op.kind == OperationKind::Inversion && n % 2 == 1))) {
-        kept.push_back(op);
-      }
-    }
-  }
-
-  detail::dedupe_operations(kept, 1e-6);
+  std::vector<Operation> gens = seed_generators(name, n, operations);
+  std::vector<Operation> kept = close_inside_parent(operations, gens);
 
   const int expect = detail::expected_group_order(name, n);
   if (expect < 0 || static_cast<int>(kept.size()) != expect) {

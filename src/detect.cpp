@@ -178,8 +178,11 @@ AxisOrder highest_order_on_axis(const std::vector<Atom>& atoms,
                                 const Vec3& axis,
                                 int max_n,
                                 double tol) {
+  // Scan upward: skip n if a proper divisor failed; after first hit g, only multiples of g.
   std::vector<char> failed(static_cast<std::size_t>(max_n) + 1, 0);
-  for (int n = max_n; n >= 2; --n) {
+  int best_n = 1;
+  std::vector<int> best_image;
+  for (int n = 2; n <= max_n; ++n) {
     bool ruled_out = false;
     for (int d = 2; d < n; ++d) {
       if (n % d == 0 && failed[static_cast<std::size_t>(d)]) {
@@ -191,14 +194,24 @@ AxisOrder highest_order_on_axis(const std::vector<Atom>& atoms,
       failed[static_cast<std::size_t>(n)] = 1;
       continue;
     }
+    // Higher orders on this axis must be multiples of the current hit; do not mark
+    // non-multiples failed (that would poison composites like C6 after C2 via C3).
+    if (best_n > 1 && n % best_n != 0) {
+      continue;
+    }
     Mat3 R = detail::rotation_matrix(axis, 2.0 * detail::kPi / n);
     std::vector<int> image = detail::permutation(atoms, by_z, R, tol);
     if (!image.empty()) {
-      return {n, std::move(image)};
+      best_n = n;
+      best_image = std::move(image);
+    } else {
+      failed[static_cast<std::size_t>(n)] = 1;
     }
-    failed[static_cast<std::size_t>(n)] = 1;
   }
-  return {};
+  if (best_n < 2) {
+    return {};
+  }
+  return {best_n, std::move(best_image)};
 }
 
 std::vector<int> compose_perm(const std::vector<int>& p, int times) {
@@ -747,10 +760,11 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
     }
   }
 
-  detail::dedupe_operations(ops, tol.primary * 10.0);
+  const double mat_tol = detail::matrix_tol_from_angle(tol.angle);
+  detail::dedupe_operations(ops, mat_tol);
 
   if (!result.linear) {
-    detail::close_group(ops, mol.atoms, tol.primary, tol.max_group_order);
+    detail::close_group(ops, mol.atoms, tol.primary, mat_tol, tol.max_group_order);
   }
 
   bool has_inversion = false;
@@ -872,7 +886,12 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   result.symmetry_number = detail::symmetry_number_for(result.point_group, n_group);
 
   if (!result.infinite) {
-    detail::assign_conjugacy_classes(result.operations, tol.primary);
+    detail::assign_conjugacy_classes(result.operations, mat_tol);
+  }
+
+  if (!result.infinite && !result.operations.empty()) {
+    result.equivalence_sets =
+        detail::orbits_from_operations(result.operations, result.molecule.size());
   }
 
   result.character_table =

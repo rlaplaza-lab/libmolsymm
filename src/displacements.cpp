@@ -531,8 +531,10 @@ Eigen::MatrixXd project_external(const Analysis& analysis, const Eigen::MatrixXd
     return r;
   };
   if (analysis.linear) {
-    for (const Vec3& ax : {Vec3(Vec3::UnitX()), Vec3(Vec3::UnitY())}) {
-      Eigen::VectorXd r = rot_mode(ax);
+    // Remove rotations about analysis-frame x,y (molecular axis is z after orientation).
+    const Mat3 Rinv = analysis.orientation.transpose();
+    for (const Vec3& frame_ax : {Vec3(Vec3::UnitX()), Vec3(Vec3::UnitY())}) {
+      Eigen::VectorXd r = rot_mode(Rinv * frame_ax);
       if (r.norm() > 1e-8) {
         modes.push_back(r.normalized());
       }

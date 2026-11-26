@@ -70,6 +70,27 @@ inline bool matrices_equal(const Mat3& a, const Mat3& b, double tol) {
   return (a - b).cwiseAbs().maxCoeff() <= tol;
 }
 
+inline bool axis_on_z(const Operation& op) {
+  return op.axis.norm() > 1e-12 && std::abs(op.axis.normalized().z()) > 0.9;
+}
+
+inline bool axis_parallel_to_c4(const Vec3& axis, const std::vector<Operation>& ops) {
+  if (axis.norm() < 1e-12) {
+    return false;
+  }
+  const Vec3 u = axis.normalized();
+  return std::any_of(ops.begin(), ops.end(), [&](const Operation& op) {
+    return op.kind == OperationKind::ProperRotation && op.order == 4 && op.axis.norm() > 1e-12 &&
+           std::abs(u.dot(op.axis.normalized())) > 0.9;
+  });
+}
+
+/// Dimensionless matrix tolerance from an axis/plane angle tolerance (radians).
+/// A relative rotation by θ has Frobenius/entry scale ~ 2 sin(θ/2).
+inline double matrix_tol_from_angle(double angle_tol) {
+  return std::max(2.0 * std::sin(0.5 * std::max(angle_tol, 1e-8)), 1e-8);
+}
+
 inline void dedupe_operations(std::vector<Operation>& ops, double tol) {
   std::vector<Operation> uniq;
   uniq.reserve(ops.size());
@@ -130,12 +151,19 @@ std::string classify_point_group(const std::vector<Operation>& ops,
                                  int n_c5,
                                  bool spherical_top);
 
+/// Schönflies (n, k) for a proper rotation matrix; prefers smallest n with 0 < k ≤ n/2.
+bool classify_proper_rotation(const Mat3& M, int& order, int& power, Vec3& axis);
+
 void close_group(std::vector<Operation>& ops,
                  const std::vector<Atom>& atoms,
-                 double tol,
+                 double match_tol,
+                 double matrix_tol,
                  int max_order);
 
-void assign_conjugacy_classes(std::vector<Operation>& ops, double tol);
+void assign_conjugacy_classes(std::vector<Operation>& ops, double matrix_tol);
+
+/// Atom orbits under the group action (via operation.image).
+std::vector<EquivalenceSet> orbits_from_operations(const std::vector<Operation>& ops, int n_atoms);
 
 void align_to_frame(Molecule& mol,
                     std::vector<Operation>& ops,
