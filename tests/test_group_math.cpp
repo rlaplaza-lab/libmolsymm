@@ -318,6 +318,7 @@ void test_cubic_subgroups() {
       sub.select_subgroup("Th");
       expect(false, "SF6→Th should throw");
     } catch (const molsymm::Error&) {
+      expect(true, "SF6→Th throws");
     }
   }
 }

@@ -64,19 +64,19 @@ nb::object cast_move(NpVector v) {
 }
 
 NpMatrix owned_matrix(std::size_t rows, std::size_t cols) {
-  double* data = new double[rows * cols];
+  auto* data = new double[rows * cols];
   nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
   return NpMatrix(data, {rows, cols}, owner);
 }
 
 NpVector owned_vector(std::size_t n) {
-  double* data = new double[n];
+  auto* data = new double[n];
   nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
   return NpVector(data, {n}, owner);
 }
 
 NpMatrix positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
-  const std::size_t n = pos.size();
+  const auto n = pos.size();
   NpMatrix xyz = owned_matrix(n, 3);
   double* data = xyz.data();
   for (std::size_t i = 0; i < n; ++i) {
@@ -88,7 +88,7 @@ NpMatrix positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
 }
 
 NpMatrix molecule_to_rows(const molsymm::Molecule& mol) {
-  const std::size_t n = static_cast<std::size_t>(mol.size());
+  const auto n = static_cast<std::size_t>(mol.size());
   NpMatrix xyz = owned_matrix(n, 3);
   double* data = xyz.data();
   for (std::size_t i = 0; i < n; ++i) {
@@ -110,8 +110,8 @@ nb::list molecules_to_list(const std::vector<molsymm::Molecule>& mols) {
 
 template <typename Derived>
 NpMatrix matrix_to_numpy(const Eigen::MatrixBase<Derived>& m) {
-  const std::size_t rows = static_cast<std::size_t>(m.rows());
-  const std::size_t cols = static_cast<std::size_t>(m.cols());
+  const auto rows = static_cast<std::size_t>(m.rows());
+  const auto cols = static_cast<std::size_t>(m.cols());
   NpMatrix out = owned_matrix(rows, cols);
   double* data = out.data();
   for (std::size_t r = 0; r < rows; ++r) {
@@ -123,7 +123,7 @@ NpMatrix matrix_to_numpy(const Eigen::MatrixBase<Derived>& m) {
 }
 
 NpVector vector_to_numpy(const Eigen::VectorXd& v) {
-  const std::size_t n = static_cast<std::size_t>(v.size());
+  const auto n = static_cast<std::size_t>(v.size());
   NpVector out = owned_vector(n);
   double* data = out.data();
   for (std::size_t i = 0; i < n; ++i) {
@@ -133,7 +133,7 @@ NpVector vector_to_numpy(const Eigen::VectorXd& v) {
 }
 
 NpMatrix forces_to_rows(const Eigen::VectorXd& forces) {
-  const int n = static_cast<int>(forces.size() / 3);
+  const auto n = static_cast<int>(forces.size() / 3);
   NpMatrix f = owned_matrix(static_cast<std::size_t>(n), 3);
   double* data = f.data();
   for (int i = 0; i < n; ++i) {
@@ -365,7 +365,7 @@ NB_MODULE(molsymm, m) {
         if (positions.cols() != 3 && positions.rows() != 3) {
           throw molsymm::Error("positions must be (n,3) or (3,n)");
         }
-        const int n = static_cast<int>(numbers.size());
+        const auto n = static_cast<int>(numbers.size());
         molsymm::Molecule mol;
         if (positions.cols() == 3) {
           if (positions.rows() != n) {
