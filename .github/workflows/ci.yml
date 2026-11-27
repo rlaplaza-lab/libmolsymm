@@ -182,10 +182,6 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-24.04
-    # Protected-branch uploads still need auth; OIDC avoids a CODECOV_TOKEN secret.
-    permissions:
-      contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@v5
 
@@ -242,7 +238,7 @@ jobs:
           flags: unittests
           name: libmolsymm
           fail_ci_if_error: true
-          use_oidc: true
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   ci:
     name: CI gate
