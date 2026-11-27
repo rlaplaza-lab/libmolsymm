@@ -242,16 +242,36 @@ CharacterTable double_irreps(const CharacterTable& base,
 
 int rotation_power(const Operation& op);
 
+// Flip so the largest-magnitude component is non-negative (±n are equivalent).
+void dominant_positive(Vec3& u) {
+  int imax = 0;
+  for (int i = 1; i < 3; ++i) {
+    if (std::abs(u[i]) > std::abs(u[imax])) {
+      imax = i;
+    }
+  }
+  if (u[imax] < 0.0) {
+    u = -u;
+  }
+}
+
 // C2'/σv vs C2''/σd for even-n axial groups by azimuth of the axis/normal.
 bool is_prime_in_plane(const Vec3& axis, int n) {
   if (axis.norm() < 1e-12 || n < 2) {
     return true;
   }
-  const Vec3 u = axis.normalized();
+  Vec3 u = axis.normalized();
   // Mulliken C2v (molecule in yz): σ(xz) with normal ‖ y is the prime vertical plane,
   // so out-of-plane x transforms as B1.
   if (n == 2) {
-    return std::abs(u.y()) >= std::abs(u.x());
+    dominant_positive(u);
+    const double ax = std::abs(u.x());
+    const double ay = std::abs(u.y());
+    if (std::abs(ay - ax) > 1e-4) {
+      return ay > ax;
+    }
+    // Oh face-diagonal normals sit at 45°; split by quadrant.
+    return u.x() * u.y() >= 0.0;
   }
   const double phi = std::atan2(u.y(), u.x());
   const double period = kPi / static_cast<double>(n);
@@ -262,6 +282,17 @@ bool is_prime_in_plane(const Vec3& axis, int n) {
   return t <= 0.5 * period + 1e-8;
 }
 
+bool is_half_turn_rotation(const Operation& op) {
+  if (op.kind != OperationKind::ProperRotation || op.order < 2) {
+    return false;
+  }
+  if (op.order == 2) {
+    return true;
+  }
+  return (op.order % 2 == 0 && op.power == op.order / 2) ||
+         std::abs(op.matrix.trace() + 1.0) < 1e-4;
+}
+
 int e_index(const std::string& base) {
   auto pos = base.find('_');
   if (pos == std::string::npos) {
@@ -270,11 +301,21 @@ int e_index(const std::string& base) {
   return std::stoi(base.substr(pos + 1));
 }
 
-// Character on a proper rotation about z. Remap p into principal_n for B parity when
-// C_n^k is stored as a lower-order axis (e.g. C4^2 as C2).
+// Character on a proper rotation about z. Remap stored (p, order) onto principal_n
+// when C2↔C4^2 disagree (C2 in C4, or C4^2 taken as the C2 generator).
 double axial_principal_chi(const std::string& base, int p, int order, int principal_n) {
   const int ord = std::max(order, 1);
-  const int k = (principal_n > 0 && principal_n % ord == 0) ? p * (principal_n / ord) : p;
+  int k = p;
+  int n_eff = ord;
+  if (principal_n > 0) {
+    if (principal_n % ord == 0) {
+      k = p * (principal_n / ord);
+      n_eff = principal_n;
+    } else if (ord % principal_n == 0) {
+      k = p / (ord / principal_n);
+      n_eff = principal_n;
+    }
+  }
   if (base == "A1" || base == "A" || base == "A2") {
     return 1.0;
   }
@@ -282,7 +323,7 @@ double axial_principal_chi(const std::string& base, int p, int order, int princi
     return (k % 2 == 0) ? 1.0 : -1.0;
   }
   if (!base.empty() && base[0] == 'E') {
-    return 2.0 * std::cos(2.0 * kPi * e_index(base) * p / ord);
+    return 2.0 * std::cos(2.0 * kPi * e_index(base) * k / std::max(n_eff, 1));
   }
   return 0.0;
 }
@@ -320,7 +361,8 @@ double axial_base_chi(const std::string& base, const Operation& op, int n) {
     return axial_base_dim(base);
   }
   if (op.kind == OperationKind::ProperRotation) {
-    if (axis_on_z(op) || op.order > 2) {
+    // Off-z C4^2 / C6^3 are perpendicular C2s, not principal-axis ops.
+    if (axis_on_z(op) || (op.order > 2 && !is_half_turn_rotation(op))) {
       return axial_principal_chi(base, rotation_power(op), op.order, n);
     }
     return axial_perp_chi(base, is_prime_in_plane(op.axis, n));
@@ -476,25 +518,25 @@ std::string family(const std::string& name) {
   return name;
 }
 
-int rotation_power(const Operation& op) {
+int rotation_power_from_matrix(const Operation& op, bool canonicalize_axis) {
   if (op.order <= 1 ||
       (op.kind != OperationKind::ProperRotation && op.kind != OperationKind::ImproperRotation)) {
     return 0;
-  }
-  // Proper: trust stored power. Improper: recompute from σ·S (closure often leaves power=1).
-  if (op.kind == OperationKind::ProperRotation && op.power > 0) {
-    return op.power % std::max(op.order, 1);
   }
   Mat3 M = op.matrix;
   if (op.kind == OperationKind::ImproperRotation) {
     // S_n = σ · C_n along the same axis; recover the proper part.
     M = reflection_matrix(op.axis) * op.matrix;
   }
+  Vec3 axis = (op.axis.norm() > 1e-12) ? op.axis.normalized() : Vec3::UnitZ();
+  if (canonicalize_axis) {
+    dominant_positive(axis);
+  }
   const double tr = M.trace();
   const double c = std::clamp((tr - 1.0) * 0.5, -1.0, 1.0);
   double ang = std::acos(c);
   Vec3 skew(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
-  if (op.axis.norm() > 1e-12 && skew.dot(op.axis.normalized()) < 0.0) {
+  if (skew.dot(axis) < 0.0) {
     ang = -ang;
   }
   int best = 1;
@@ -511,6 +553,23 @@ int rotation_power(const Operation& op) {
     }
   }
   return best;
+}
+
+int rotation_power(const Operation& op) {
+  if (op.order <= 1 ||
+      (op.kind != OperationKind::ProperRotation && op.kind != OperationKind::ImproperRotation)) {
+    return 0;
+  }
+  // Proper: trust stored power. Improper: recompute from σ·S (closure often leaves power=1).
+  if (op.kind == OperationKind::ProperRotation && op.power > 0) {
+    return op.power % std::max(op.order, 1);
+  }
+  return rotation_power_from_matrix(op, false);
+}
+
+// Axis-canonicalized power so C3/C3^2 and S6/S6^5 split despite stored axis polarity.
+int canonical_rotation_power(const Operation& op) {
+  return rotation_power_from_matrix(op, true);
 }
 
 int abstract_class_index(const std::string& fam,
@@ -567,8 +626,8 @@ int abstract_class_index(const std::string& fam,
       return 0;
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
-      const int p = rotation_power(rep);
-      return (p == 1 || p == 4) ? 1 : 2; // 4C3 vs 4C3^2
+      const int p = canonical_rotation_power(rep);
+      return (p == 1) ? 1 : 2; // 4C3 vs 4C3^2
     }
     // Face-axis C2 may be stored as C4^2 (order 4) when T is taken from O/Oh.
     if (rep.kind == OperationKind::ProperRotation &&
@@ -580,8 +639,8 @@ int abstract_class_index(const std::string& fam,
       return 0;
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
-      const int p = rotation_power(rep);
-      return (p == 1 || p == 4) ? 1 : 2;
+      const int p = canonical_rotation_power(rep);
+      return (p == 1) ? 1 : 2;
     }
     if (rep.kind == OperationKind::ProperRotation &&
         (rep.order == 2 || rotation_power(rep) == 2 || std::abs(rep.matrix.trace() + 1.0) < 1e-4)) {
@@ -591,7 +650,7 @@ int abstract_class_index(const std::string& fam,
       return 4;
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
-      const int p = rotation_power(rep);
+      const int p = canonical_rotation_power(rep);
       return (p == 1) ? 5 : 6; // 4S6 vs 4S6^5
     }
     if (rep.kind == OperationKind::Reflection) {
@@ -647,7 +706,7 @@ int abstract_class_index(const std::string& fam,
       return 0;
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 5) {
-      const int p = rotation_power(rep);
+      const int p = canonical_rotation_power(rep);
       return (p == 1 || p == 4) ? 1 : 2; // C5 vs C5^2
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
@@ -661,7 +720,7 @@ int abstract_class_index(const std::string& fam,
       return 0;
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 5) {
-      const int p = rotation_power(rep);
+      const int p = canonical_rotation_power(rep);
       return (p == 1 || p == 4) ? 1 : 2;
     }
     if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
@@ -674,7 +733,7 @@ int abstract_class_index(const std::string& fam,
       return 5;
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 10) {
-      const int p = rotation_power(rep);
+      const int p = canonical_rotation_power(rep);
       return (p == 1 || p == 9) ? 6 : 7; // S10 vs S10^3
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {

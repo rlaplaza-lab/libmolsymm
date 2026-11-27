@@ -23,7 +23,8 @@ struct Analysis {
   std::vector<Operation> operations;
   CharacterTable character_table;
   std::vector<std::string> subgroups;
-  double rmsd = 0.0; // after symmetrization of the analysis geometry
+  double rmsd = 0.0;        // after symmetrization of the analysis geometry
+  double matrix_tol = 1e-2; // conjugacy; set by analyze, reused by select_subgroup
 
   /// Map a point from the analysis frame back to the original input coordinates.
   [[nodiscard]] Vec3 frame_to_input(const Vec3& p) const {

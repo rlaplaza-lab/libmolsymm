@@ -172,12 +172,13 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       add(dn(n));
       add(dnd(n));
       add("S" + std::to_string(2 * n));
-      add("C2v");
-      if (n % 2 == 1) {
+      // Odd Dnd has no C2v; even Dnd does (via D2d).
+      if (n % 2 == 0) {
+        add("C2v");
+        add("D2d");
+      } else {
         add("Ci");
         add("C2h");
-      } else {
-        add("D2d");
       }
     } else {
       add(dn(n));
@@ -869,7 +870,7 @@ void Analysis::select_subgroup(const std::string& name) {
     order = 1;
     infinite = false;
     symmetry_number = 1;
-    detail::assign_conjugacy_classes(operations, 1e-6);
+    detail::assign_conjugacy_classes(operations, matrix_tol);
     character_table = detail::build_character_table("C1", 1, operations);
     subgroups = detail::constructive_subgroups("C1", 1);
     return;
@@ -904,7 +905,7 @@ void Analysis::select_subgroup(const std::string& name) {
   infinite = false;
   order = static_cast<int>(operations.size());
   reorient_principal_to_z(*this, name, n);
-  detail::assign_conjugacy_classes(operations, 1e-6);
+  detail::assign_conjugacy_classes(operations, matrix_tol);
   character_table = detail::build_character_table(point_group, n, operations);
   subgroups = detail::constructive_subgroups(point_group, n);
   symmetry_number = detail::symmetry_number_for(point_group, n);

@@ -64,6 +64,33 @@ double chi_on(const molsymm::Analysis& a, const std::string& irrep, const molsym
       .characters[static_cast<std::size_t>(ir)][static_cast<std::size_t>(op.class_index)];
 }
 
+bool has_class_label(const molsymm::Analysis& a, const std::string& label) {
+  const auto& labs = a.character_table.class_labels;
+  return std::find(labs.begin(), labs.end(), label) != labs.end();
+}
+
+void expect_c2v_b_split(const molsymm::Analysis& a, const std::string& tag) {
+  bool saw_c2 = false;
+  bool saw_sig = false;
+  double first_b1_sig = 0.0;
+  for (const auto& op : a.operations) {
+    if (op.kind == molsymm::OperationKind::ProperRotation) {
+      expect(std::abs(chi_on(a, "B1", op) + 1.0) < 1e-6, tag + " B1(C2) = −1");
+      expect(std::abs(chi_on(a, "B2", op) + 1.0) < 1e-6, tag + " B2(C2) = −1");
+      saw_c2 = true;
+    } else if (op.kind == molsymm::OperationKind::Reflection) {
+      expect(std::abs(chi_on(a, "B1", op) + chi_on(a, "B2", op)) < 1e-6, tag + " B1(σ) = −B2(σ)");
+      if (!saw_sig) {
+        first_b1_sig = chi_on(a, "B1", op);
+        saw_sig = true;
+      } else {
+        expect(std::abs(chi_on(a, "B1", op) - first_b1_sig) > 0.5, tag + " mirrors disagree on B1");
+      }
+    }
+  }
+  expect(saw_c2 && saw_sig, tag + " has C2 and σ");
+}
+
 molsymm::Molecule staggered_ethane() {
   std::vector<int> z{1, 6, 1, 1, 6, 1, 1, 1};
   std::vector<double> xyz{1.1851,  -0.0039, 0.9875,  0.7516,  -0.0225, -0.0209, 1.1669, 0.8330,
@@ -199,6 +226,7 @@ void test_s6_inversion() {
   auto a = molsymm::analyze(staggered_ethane());
   expect(a.point_group == "D3d", "staggered ethane D3d got " + a.point_group);
   expect(has_subgroup(a, "S6"), "D3d lists S6");
+  expect(!has_subgroup(a, "C2v"), "D3d does not list C2v");
   a.select_subgroup("S6");
   expect(a.point_group == "S6" && a.order == 6, "ethane→S6");
   expect(has_subgroup(a, "Ci") && !has_subgroup(a, "C3h"), "S6 lists Ci not C3h");
@@ -323,7 +351,12 @@ void test_cubic_subgroups() {
       auto c2v = th;
       c2v.select_subgroup("C2v");
       expect(c2v.point_group == "C2v" && c2v.order == 4, "Th→C2v order 4");
+      expect_c2v_b_split(c2v, "Th→C2v");
     }
+    expect(has_class_label(th, "4C3") && has_class_label(th, "4C3^2"),
+           "Th labels split 4C3 / 4C3^2");
+    expect(has_class_label(th, "4S6") && has_class_label(th, "4S6^5"),
+           "Th labels split 4S6 / 4S6^5");
     bool saw_i = false;
     bool saw_s6 = false;
     bool saw_sigma = false;
@@ -333,7 +366,7 @@ void test_cubic_subgroups() {
         expect(std::abs(chi_on(th, "Eu", op) + 2.0) < 1e-6, "Th Eu(i) = −2");
         saw_i = true;
       } else if (op.kind == molsymm::OperationKind::ImproperRotation && op.order == 6) {
-        // S6 = i·C3² → χ_u(S6) = −χ(C3²) = +1 for real E.
+        // S6 = i·C3²; S6⁵ = i·C3. Real E: χ_u(S6) = −χ(C3²) = +1.
         expect(std::abs(chi_on(th, "Eu", op) - 1.0) < 1e-6, "Th Eu(S6) = +1");
         expect(std::abs(chi_on(th, "Eg", op) + 1.0) < 1e-6, "Th Eg(S6) = −1");
         saw_s6 = true;
@@ -344,6 +377,54 @@ void test_cubic_subgroups() {
       }
     }
     expect(saw_i && saw_s6 && saw_sigma, "Th has i, S6, and σh");
+
+    {
+      auto c2 = a;
+      c2.select_subgroup("C2");
+      for (const auto& op : c2.operations) {
+        if (op.kind == molsymm::OperationKind::ProperRotation) {
+          expect(std::abs(chi_on(c2, "B", op) + 1.0) < 1e-6, "SF6→C2 B(C2) = −1");
+        }
+      }
+    }
+    {
+      auto c2v = a;
+      c2v.select_subgroup("C2v");
+      expect_c2v_b_split(c2v, "SF6→C2v");
+    }
+    {
+      auto d2 = a;
+      d2.select_subgroup("D2");
+      double ip_a1_b1 = 0.0;
+      for (const auto& op : d2.operations) {
+        ip_a1_b1 += chi_on(d2, "A1", op) * chi_on(d2, "B1", op);
+      }
+      expect(std::abs(ip_a1_b1) < 1e-6, "SF6→D2 ⟨A1|B1⟩ = 0");
+    }
+    {
+      auto d4 = a;
+      d4.select_subgroup("D4");
+      bool saw_face_c2 = false;
+      for (const auto& op : d4.operations) {
+        if (op.kind != molsymm::OperationKind::ProperRotation) {
+          continue;
+        }
+        const bool half = (op.order == 2) || (op.order == 4 && op.power == 2) ||
+                          std::abs(op.matrix.trace() + 1.0) < 1e-4;
+        const bool on_z = op.axis.norm() > 1e-12 && std::abs(op.axis.normalized().z()) > 0.9;
+        if (half && !on_z) {
+          expect(std::abs(chi_on(d4, "A2", op) + 1.0) < 1e-6, "SF6→D4 A2(C2′) = −1");
+          saw_face_c2 = true;
+        }
+      }
+      expect(saw_face_c2, "SF6→D4 has off-axis C2′");
+    }
+    {
+      auto t = a;
+      t.select_subgroup("T");
+      expect(has_class_label(t, "4C3") && has_class_label(t, "4C3^2"),
+             "SF6→T labels split 4C3 / 4C3^2");
+    }
   }
 }
 

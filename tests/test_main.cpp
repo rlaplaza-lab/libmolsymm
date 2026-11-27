@@ -737,6 +737,19 @@ void test_high_symmetry_counts() {
                std::to_string(nd));
   };
   check_nd("iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", 1e-3, 2);
+  {
+    molsymm::Tolerances cub_tol;
+    cub_tol.primary = 1e-3;
+    auto cub =
+        molsymm::analyze(load_xyz(root + "/iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz"), cub_tol);
+    expect(cub.point_group == "Oh", "cubane Oh");
+    for (const auto& [name, nclass] : {std::pair<const char*, int>{"Th", 8}, {"Td", 5}}) {
+      auto sub = cub;
+      sub.select_subgroup(name);
+      expect(static_cast<int>(sub.character_table.class_labels.size()) == nclass,
+             std::string("cubane→") + name + " conjugacy class count");
+    }
+  }
   check_nd("iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", 1e-2, 3);
   // Ih: one carbon orbit; site-unique directions span R^3 → 3 unique Cartesians.
   check_nd("iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz", 1e-4, 3);

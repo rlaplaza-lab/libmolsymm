@@ -885,6 +885,7 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   result.order = result.infinite ? 0 : static_cast<int>(result.operations.size());
   result.symmetry_number = detail::symmetry_number_for(result.point_group, n_group);
 
+  result.matrix_tol = mat_tol;
   if (!result.infinite) {
     detail::assign_conjugacy_classes(result.operations, mat_tol);
   }
