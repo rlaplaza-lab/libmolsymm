@@ -176,9 +176,9 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
   }
   // Real Mulliken tables for Cn/Sn/Cnh (n≥3) and T/Th fold complex E pairs into
   // one 2D E, so Σ dim² / complex orthogonality do not hold.
-  if (is_pure_cn_or_sn(a.point_group) || a.point_group == "T" || a.point_group == "Th") {
-    return;
-  }
+  const bool folded_t_th = (a.point_group == "T" || a.point_group == "Th");
+  const bool folded_cn_sn = is_pure_cn_or_sn(a.point_group);
+  bool folded_cnh = false;
   if (a.point_group.size() >= 3 && a.point_group[0] == 'C' && a.point_group.back() == 'h') {
     int n_ax = 0;
     for (char ch : a.point_group) {
@@ -186,18 +186,22 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
         n_ax = n_ax * 10 + (ch - '0');
       }
     }
-    if (n_ax >= 3) {
-      return;
+    folded_cnh = (n_ax >= 3);
+  }
+  if (!folded_cn_sn && !folded_t_th && !folded_cnh) {
+    int dim2 = 0;
+    for (int d : ct.irrep_dims) {
+      dim2 += d * d;
     }
+    expect(dim2 == a.order,
+           label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
   }
-  int dim2 = 0;
-  for (int d : ct.irrep_dims) {
-    dim2 += d * d;
+  if (folded_cn_sn || folded_cnh) {
+    return;
   }
-  expect(dim2 == a.order,
-         label + " sum dim^2 expect " + std::to_string(a.order) + " got " + std::to_string(dim2));
 
   // Great orthogonality: (1/|G|) Σ_c |c| χ_i(c) χ_j(c) = δ_ij
+  // Folded E rows in T/Th are 1E⊕2E, so ⟨E,E⟩ = 2|G| instead of |G|.
   if (ct.class_sizes.size() == ct.characters.front().size()) {
     const int nir = static_cast<int>(ct.irrep_names.size());
     const int ncl = static_cast<int>(ct.class_sizes.size());
@@ -209,7 +213,13 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
                  ct.characters[static_cast<std::size_t>(i)][static_cast<std::size_t>(c)] *
                  ct.characters[static_cast<std::size_t>(j)][static_cast<std::size_t>(c)];
         }
-        const double want = (i == j) ? static_cast<double>(a.order) : 0.0;
+        double want = 0.0;
+        if (i == j) {
+          want = static_cast<double>(a.order);
+          if (folded_t_th && ct.irrep_dims[static_cast<std::size_t>(i)] == 2) {
+            want *= 2.0;
+          }
+        }
         expect(std::abs(sum - want) < 1e-6,
                label + " orthogonality " + ct.irrep_names[static_cast<std::size_t>(i)] + "/" +
                    ct.irrep_names[static_cast<std::size_t>(j)] + " got " + std::to_string(sum));
@@ -765,9 +775,12 @@ void test_high_symmetry_counts() {
                                     {"I", 60},
                                     {"Ci", 2},
                                     {"Cs", 2},
+                                    {"C2v", 4},
                                     {"C2h", 4},
                                     {"C3v", 6},
                                     {"C5v", 10},
+                                    {"S6", 6},
+                                    {"S10", 10},
                                     {"D2h", 8},
                                     {"D3d", 12},
                                     {"D5d", 20},

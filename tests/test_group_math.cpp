@@ -283,10 +283,12 @@ void test_cubic_subgroups() {
            "Oh lists Th/S4/S6");
     for (const auto& [name, order] : {std::pair<const char*, int>{"T", 12},
                                       {"Th", 24},
+                                      {"Td", 24},
                                       {"O", 24},
                                       {"Oh", 48},
                                       {"Ci", 2},
                                       {"Cs", 2},
+                                      {"C2v", 4},
                                       {"C2h", 4},
                                       {"C4v", 8},
                                       {"C4h", 8},
@@ -305,9 +307,23 @@ void test_cubic_subgroups() {
              std::string("SF6→") + name + " order " + std::to_string(order));
       expect(!sub.character_table.irrep_names.empty(), std::string(name) + " has character table");
     }
+    for (const char* cubic : {"T", "Th", "O"}) {
+      auto sub = a;
+      sub.select_subgroup(cubic);
+      sub.select_subgroup("C1");
+      expect(sub.point_group == "C1" && sub.order == 1, std::string("SF6→") + cubic + "→C1");
+      expect(!sub.character_table.irrep_names.empty(),
+             std::string(cubic) + "→C1 has character table");
+    }
     auto th = a;
     th.select_subgroup("Th");
-    expect(has_subgroup(th, "S6") && !has_subgroup(th, "C3h"), "Th lists S6 not C3h");
+    expect(has_subgroup(th, "S6") && has_subgroup(th, "C2v") && !has_subgroup(th, "C3h"),
+           "Th lists S6 and C2v not C3h");
+    {
+      auto c2v = th;
+      c2v.select_subgroup("C2v");
+      expect(c2v.point_group == "C2v" && c2v.order == 4, "Th→C2v order 4");
+    }
     bool saw_i = false;
     bool saw_s6 = false;
     bool saw_sigma = false;
@@ -317,7 +333,7 @@ void test_cubic_subgroups() {
         expect(std::abs(chi_on(th, "Eu", op) + 2.0) < 1e-6, "Th Eu(i) = −2");
         saw_i = true;
       } else if (op.kind == molsymm::OperationKind::ImproperRotation && op.order == 6) {
-        // S6 = i·C3 → χ_u(S6) = −χ(C3) = +1 for real E.
+        // S6 = i·C3² → χ_u(S6) = −χ(C3²) = +1 for real E.
         expect(std::abs(chi_on(th, "Eu", op) - 1.0) < 1e-6, "Th Eu(S6) = +1");
         expect(std::abs(chi_on(th, "Eg", op) + 1.0) < 1e-6, "Th Eg(S6) = −1");
         saw_s6 = true;

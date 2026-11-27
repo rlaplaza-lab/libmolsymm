@@ -59,7 +59,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
     return s;
   }
   if (name == "Th") {
-    for (auto g : {"C2", "C3", "Ci", "Cs", "C2h", "S6", "D2", "D2h", "T", "Th"}) {
+    for (auto g : {"C2", "C3", "Ci", "Cs", "C2v", "C2h", "S6", "D2", "D2h", "T", "Th"}) {
       add(g);
     }
     return s;
@@ -83,7 +83,8 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       add(g);
     }
     if (name == "Ih") {
-      for (auto g : {"Ci", "Cs", "C2h", "C3v", "C5v", "D2h", "D3d", "D5d", "Th", "Ih"}) {
+      for (auto g :
+           {"Ci", "Cs", "C2v", "C2h", "C3v", "C5v", "S6", "S10", "D2h", "D3d", "D5d", "Th", "Ih"}) {
         add(g);
       }
     }
@@ -260,7 +261,8 @@ bool is_180_rotation(const Operation& op) {
     return true;
   }
   // Face-axis C4^2 in O/Oh is stored with order 4, power 2, trace −1.
-  return op.order >= 2 && (op.power == op.order / 2 || std::abs(op.matrix.trace() + 1.0) < 1e-4);
+  return op.order >= 2 && ((op.order % 2 == 0 && op.power == op.order / 2) ||
+                           std::abs(op.matrix.trace() + 1.0) < 1e-4);
 }
 
 bool is_cn_generator(const Operation& op, int cn) {
@@ -867,6 +869,7 @@ void Analysis::select_subgroup(const std::string& name) {
     order = 1;
     infinite = false;
     symmetry_number = 1;
+    detail::assign_conjugacy_classes(operations, 1e-6);
     character_table = detail::build_character_table("C1", 1, operations);
     subgroups = detail::constructive_subgroups("C1", 1);
     return;

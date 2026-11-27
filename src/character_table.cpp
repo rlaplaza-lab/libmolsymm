@@ -532,7 +532,9 @@ int abstract_class_index(const std::string& fam,
     if (rep.kind == OperationKind::ProperRotation && rep.order == 3) {
       return 1;
     }
-    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+    // Face-axis C2 may be stored as C4^2 (order 4) when Td is taken from O/Oh.
+    if (rep.kind == OperationKind::ProperRotation &&
+        (rep.order == 2 || rotation_power(rep) == 2 || std::abs(rep.matrix.trace() + 1.0) < 1e-4)) {
       return 2;
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 4) {
@@ -590,7 +592,7 @@ int abstract_class_index(const std::string& fam,
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
       const int p = rotation_power(rep);
-      return (p == 1 || p == 5) ? 5 : 6; // 4S6 vs 4S6^5
+      return (p == 1) ? 5 : 6; // 4S6 vs 4S6^5
     }
     if (rep.kind == OperationKind::Reflection) {
       return 7;
