@@ -62,15 +62,22 @@ target_include_directories(molsymm
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>
 )
-target_link_libraries(molsymm PUBLIC Eigen3::Eigen)
-# Eigen as system includes so -Werror does not fire inside them (BUILD_INTERFACE:
-# FetchContent Eigen lives under the build tree).
-get_target_property(_molsymm_eigen_inc Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
-if(_molsymm_eigen_inc)
-  target_include_directories(molsymm SYSTEM PUBLIC
-    $<BUILD_INTERFACE:${_molsymm_eigen_inc}>
-  )
+# Mark Eigen headers as system before linking so -Werror /WX ignore third-party
+# warnings (Eigen 3.4 trips -Wmaybe-uninitialized, -Wclass-memaccess, MSVC C2220).
+# Must set INTERFACE_SYSTEM_INCLUDE_DIRECTORIES on the real target: wrapping Eigen's
+# already-generator-expressed paths in another $<BUILD_INTERFACE:...> via
+# target_include_directories(SYSTEM) leaves a plain -I and does not suppress them.
+if(TARGET eigen)
+  set(_molsymm_eigen_real eigen)
+else()
+  set(_molsymm_eigen_real Eigen3::Eigen)
 endif()
+get_target_property(_molsymm_eigen_inc ${_molsymm_eigen_real} INTERFACE_INCLUDE_DIRECTORIES)
+if(_molsymm_eigen_inc)
+  set_property(TARGET ${_molsymm_eigen_real} PROPERTY
+    INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_molsymm_eigen_inc}")
+endif()
+target_link_libraries(molsymm PUBLIC Eigen3::Eigen)
 target_compile_features(molsymm PUBLIC cxx_std_20)
 # Needed when a static core is linked into the Python extension module.
 set_target_properties(molsymm PROPERTIES POSITION_INDEPENDENT_CODE ON)
