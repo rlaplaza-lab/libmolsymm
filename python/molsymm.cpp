@@ -20,7 +20,7 @@ molsymm::ZMatrixAtom zatom_from_python(nb::handle entry) {
   if (!nb::isinstance<nb::sequence>(entry) || nb::isinstance<nb::str>(entry)) {
     throw molsymm::Error(kZEntryHint);
   }
-  nb::sequence seq = nb::cast<nb::sequence>(entry);
+  auto seq = nb::cast<nb::sequence>(entry);
   const std::size_t n = nb::len(seq);
   if (n != 1 && n != 3 && n != 5 && n != 7) {
     throw molsymm::Error(kZEntryHint);
@@ -42,7 +42,7 @@ molsymm::ZMatrixAtom zatom_from_python(nb::handle entry) {
   return atom;
 }
 
-std::vector<molsymm::ZMatrixAtom> zrows_from_python(nb::sequence entries) {
+std::vector<molsymm::ZMatrixAtom> zrows_from_python(const nb::sequence& entries) {
   std::vector<molsymm::ZMatrixAtom> rows;
   rows.reserve(nb::len(entries));
   for (nb::handle entry : entries) {
@@ -247,7 +247,8 @@ NB_MODULE(molsymm, m) {
           [free_axes_prop](const molsymm::SubgroupAssembly& a) { return free_axes_prop(a.sites); })
       .def(
           "assemble",
-          [mol_to_xyz, parse_positions](const molsymm::SubgroupAssembly& a, nb::sequence pieces) {
+          [mol_to_xyz, parse_positions](const molsymm::SubgroupAssembly& a,
+                                        const nb::sequence& pieces) {
             if (static_cast<int>(nb::len(pieces)) != static_cast<int>(a.pieces.size())) {
               throw molsymm::Error("piece count mismatch");
             }
@@ -331,8 +332,8 @@ NB_MODULE(molsymm, m) {
       [](const std::vector<int>& numbers,
          const Eigen::MatrixXd& positions,
          const std::string& point_group,
-         nb::object forces,
-         nb::object hessian,
+         const nb::object& forces,
+         const nb::object& hessian,
          double primary) {
         if (positions.cols() != 3 && positions.rows() != 3) {
           throw molsymm::Error("positions must be (n,3) or (3,n)");
@@ -361,7 +362,7 @@ NB_MODULE(molsymm, m) {
               throw molsymm::Error("forces must be (n,3), (3,n), or flat (3n,)");
             }
           } else {
-            Eigen::MatrixXd fmat = nb::cast<Eigen::MatrixXd>(forces);
+            auto fmat = nb::cast<Eigen::MatrixXd>(forces);
             forces_vec.resize(3 * n);
             if (fmat.cols() == 3 && fmat.rows() == n) {
               for (int i = 0; i < n; ++i) {
@@ -405,14 +406,14 @@ NB_MODULE(molsymm, m) {
 
   m.def(
       "zmatrix_to_xyz",
-      [](nb::sequence entries) {
+      [](const nb::sequence& entries) {
         return positions_to_rows(molsymm::zmatrix_positions(zrows_from_python(entries)));
       },
       nb::arg("entries"));
 
   m.def(
       "analyze_zmatrix",
-      [](nb::sequence entries, double primary) {
+      [](const nb::sequence& entries, double primary) {
         molsymm::Tolerances tol;
         tol.primary = primary;
         molsymm::Molecule mol = molsymm::molecule_from_zmatrix(zrows_from_python(entries));

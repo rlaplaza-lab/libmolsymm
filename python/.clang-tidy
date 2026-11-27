@@ -1,0 +1,5 @@
+# Keep the repo-wide checks, but drop clang-analyzer for this nanobind TU.
+# Eigen casters instantiate templates that trip null-deref false positives inside
+# nanobind headers; those still fail under WarningsAsErrors even with -isystem.
+InheritParentConfig: true
+Checks: '-clang-analyzer-*'

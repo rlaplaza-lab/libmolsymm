@@ -167,6 +167,15 @@ if(MOLSYMM_BUILD_PYTHON)
   nanobind_add_module(molsymm_py python/molsymm.cpp)
   target_link_libraries(molsymm_py PRIVATE molsymm)
   set_target_properties(molsymm_py PROPERTIES OUTPUT_NAME molsymm)
+  # Nanobind is third-party: system includes keep clang-tidy/-Werror out of its headers.
+  if(DEFINED nanobind_SOURCE_DIR)
+    target_include_directories(molsymm_py SYSTEM PRIVATE "${nanobind_SOURCE_DIR}/include")
+  else()
+    get_target_property(_molsymm_nb_inc nanobind-static INTERFACE_INCLUDE_DIRECTORIES)
+    if(_molsymm_nb_inc)
+      target_include_directories(molsymm_py SYSTEM PRIVATE ${_molsymm_nb_inc})
+    endif()
+  endif()
   # Nanobind headers trip -Wshadow/-Wpedantic; keep first-party warning set on C++ targets only.
   if(MOLSYMM_BUILD_TESTS)
     # Some interpreters (e.g. conda) ship an older libstdc++ via RPATH that cannot

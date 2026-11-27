@@ -26,7 +26,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             clang-tidy clang-tools cppcheck \
-            python3-pip ninja-build cmake g++ libeigen3-dev
+            python3-dev python3-pip ninja-build cmake g++ libeigen3-dev
           python3 -m pip install --user ruff 'clang-format==23.1.3'
 
       - name: clang-format
@@ -42,13 +42,13 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
             -DCMAKE_CXX_COMPILER=g++ \
-            -DMOLSYMM_BUILD_PYTHON=OFF \
+            -DMOLSYMM_BUILD_PYTHON=ON \
             -DMOLSYMM_BUILD_FORTRAN=OFF \
             -DMOLSYMM_BUILD_TESTS=ON
 
       - name: clang-tidy
         run: |
-          mapfile -t TUS < <(find src tests examples -name '*.cpp' | sort)
+          mapfile -t TUS < <(find src tests examples python -name '*.cpp' | sort)
           run-clang-tidy -p build-lint -quiet "${TUS[@]}"
 
       - name: cppcheck
@@ -72,7 +72,8 @@ jobs:
       - name: ruff
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          ruff check tests/test_python.py
+          ruff check tests
+          ruff format --check tests
 
   test:
     name: test (${{ matrix.compiler }}, ${{ matrix.build_type }})
