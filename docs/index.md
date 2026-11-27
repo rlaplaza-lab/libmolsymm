@@ -31,6 +31,7 @@ The CMake / pkg-config package name is `molsymm`.
 | Coordinates | Ångströms |
 | Z-matrix angles | Radians |
 | Z-matrix indices | 1-based; `0` means unused |
+| Fortran atom indices | 1-based (representatives, copies, pieces) |
 | Python positions | Prefer `(n, 3)`; `(3, n)` is also accepted |
 | C `xyz` | Flat length `3*n` (`x0,y0,z0,…`) |
 | Fortran `xyz` | Shape `(3, n)` |

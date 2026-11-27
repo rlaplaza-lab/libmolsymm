@@ -1453,6 +1453,8 @@ void test_symmetrize_data() {
 
 } // namespace
 
+void test_group_math();
+
 int main() {
   try {
     test_point_groups();
@@ -1469,6 +1471,7 @@ int main() {
     test_zmatrix();
     test_fragmentation();
     test_symmetrize_data();
+    test_group_math();
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;

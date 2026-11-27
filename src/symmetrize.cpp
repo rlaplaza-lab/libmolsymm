@@ -29,7 +29,7 @@ double Analysis::symmetrize() {
     before[static_cast<std::size_t>(i)] = molecule.atoms[static_cast<std::size_t>(i)].position;
   }
 
-  if (linear || point_group == "Cinfv" || point_group == "Dinfh") {
+  if (point_group == "Cinfv" || point_group == "Dinfh") {
     for (int i = 0; i < n; ++i) {
       Vec3& p = molecule.atoms[static_cast<std::size_t>(i)].position;
       p.x() = 0.0;

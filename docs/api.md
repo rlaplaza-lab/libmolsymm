@@ -184,3 +184,5 @@ on failure. Type `ms_zatom` mirrors the C Z-matrix row.
 
 `ms_displacement_geometry(..., plus, ...)`: `1` = plus geometry, `0` = minus.
 `rep_xyz` is `(3, nrep)`; `piece_xyz` is `(3, nasym)`.
+Representative, copy, and piece atom indices are **1-based** (matching Z-matrix
+indices). C and Python use 0-based indices.

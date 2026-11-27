@@ -347,7 +347,8 @@ SubgroupAssembly subgroup_assembly(const Analysis& analysis, const std::string& 
   SubgroupAssembly assembly;
   assembly.subgroup = subgroup;
   assembly.center_of_mass = analysis.center_of_mass;
-  assembly.orientation = analysis.orientation;
+  // select_subgroup may reorient the principal axis; keep frame and ops consistent.
+  assembly.orientation = sub.orientation;
   assembly.operations = std::move(sub.operations);
   assembly.atomic_numbers = std::move(parent.atomic_numbers);
   assembly.masses = std::move(parent.masses);

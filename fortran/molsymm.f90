@@ -524,7 +524,9 @@ contains
     type(c_ptr), intent(in) :: fhandle
     integer(c_int), intent(in) :: index
     integer(c_int), intent(out) :: atom, status
-    status = molsymm_representative_atom(fhandle, index, atom)
+    ! Fortran indices are 1-based; C is 0-based.
+    status = molsymm_representative_atom(fhandle, index - 1_c_int, atom)
+    if (status == 0) atom = atom + 1_c_int
   end subroutine
 
   subroutine ms_n_copies(fhandle, n, status)
@@ -538,20 +540,29 @@ contains
     integer(c_int), intent(in) :: copy
     integer(c_int), intent(out) :: atoms(:)
     integer(c_int), intent(out) :: status
-    integer(c_int) :: n
-    status = molsymm_copy_n_atoms(fhandle, copy, n)
+    integer(c_int) :: n, i
+    status = molsymm_copy_n_atoms(fhandle, copy - 1_c_int, n)
     if (status /= 0) return
     if (size(atoms) < n) then
       status = -1
       return
     end if
-    status = molsymm_copy_atoms(fhandle, copy, atoms)
+    status = molsymm_copy_atoms(fhandle, copy - 1_c_int, atoms)
+    if (status == 0) then
+      do i = 1, n
+        atoms(i) = atoms(i) + 1_c_int
+      end do
+    end if
   end subroutine
 
   subroutine ms_fragment_mask(fhandle, mask, status)
     type(c_ptr), intent(in) :: fhandle
     integer(c_signed_char), intent(out) :: mask(:)
     integer(c_int), intent(out) :: status
+    if (size(mask) <= 0) then
+      status = -1
+      return
+    end if
     status = molsymm_fragment_mask(fhandle, mask)
   end subroutine
 
@@ -562,13 +573,21 @@ contains
     integer(c_int), intent(out) :: status
     real(c_double), allocatable :: flat_in(:), flat_out(:)
     integer :: nrep, n, i
+    integer(c_int) :: nrep_expect
     nrep = size(rep_xyz, 2)
     n = size(xyz_out, 2)
+    status = molsymm_n_representatives(fhandle, nrep_expect)
+    if (status /= 0) return
+    if (nrep /= nrep_expect .or. n <= 0) then
+      status = -1
+      return
+    end if
     allocate(flat_in(3*nrep), flat_out(3*n))
     do i = 1, nrep
       flat_in(3*(i-1)+1:3*(i-1)+3) = rep_xyz(:, i)
     end do
     status = molsymm_reconstruct(fhandle, flat_in, flat_out)
+    if (status /= 0) return
     do i = 1, n
       xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
     end do
@@ -607,14 +626,19 @@ contains
     integer(c_int), intent(in) :: piece
     integer(c_int), intent(out) :: atoms(:)
     integer(c_int), intent(out) :: status
-    integer(c_int) :: n
-    status = molsymm_assembly_piece_n_atoms(ahandle, piece, n)
+    integer(c_int) :: n, i
+    status = molsymm_assembly_piece_n_atoms(ahandle, piece - 1_c_int, n)
     if (status /= 0) return
     if (size(atoms) < n) then
       status = -1
       return
     end if
-    status = molsymm_assembly_piece_atoms(ahandle, piece, atoms)
+    status = molsymm_assembly_piece_atoms(ahandle, piece - 1_c_int, atoms)
+    if (status == 0) then
+      do i = 1, n
+        atoms(i) = atoms(i) + 1_c_int
+      end do
+    end if
   end subroutine
 
   subroutine ms_assemble(ahandle, piece_xyz, xyz_out, status)
@@ -623,14 +647,28 @@ contains
     real(c_double), intent(out) :: xyz_out(:,:)   ! (3, n)
     integer(c_int), intent(out) :: status
     real(c_double), allocatable :: flat_in(:), flat_out(:)
-    integer :: nasym, n, i
+    integer :: nasym, n, i, p
+    integer(c_int) :: npieces, n_piece, nasym_expect
     nasym = size(piece_xyz, 2)
     n = size(xyz_out, 2)
+    status = molsymm_assembly_n_pieces(ahandle, npieces)
+    if (status /= 0) return
+    nasym_expect = 0_c_int
+    do p = 0, npieces - 1
+      status = molsymm_assembly_piece_n_atoms(ahandle, int(p, c_int), n_piece)
+      if (status /= 0) return
+      nasym_expect = nasym_expect + n_piece
+    end do
+    if (nasym /= nasym_expect .or. n <= 0) then
+      status = -1
+      return
+    end if
     allocate(flat_in(3*nasym), flat_out(3*n))
     do i = 1, nasym
       flat_in(3*(i-1)+1:3*(i-1)+3) = piece_xyz(:, i)
     end do
     status = molsymm_assemble(ahandle, flat_in, flat_out)
+    if (status /= 0) return
     do i = 1, n
       xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
     end do

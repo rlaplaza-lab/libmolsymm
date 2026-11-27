@@ -234,7 +234,7 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
     }
   };
 
-  if (analysis.linear || analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
+  if (analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
     std::vector<char> seen(n, 0);
     for (int i = 0; i < n; ++i) {
       if (seen[static_cast<std::size_t>(i)]) {
@@ -251,13 +251,18 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step) {
           seen[static_cast<std::size_t>(j)] = 1;
         }
       }
+      const bool on_center = pi.norm() < 1e-8;
       for (const Vec3& dir : {Vec3(Vec3::UnitZ()), Vec3(Vec3::UnitX())}) {
         UniqueDisplacement ud;
         ud.atom = i;
         ud.direction = dir;
         ud.preserved_subgroup = (dir.z() > 0.5) ? analysis.point_group : "Cs";
         if (analysis.point_group == "Dinfh") {
-          ud.irreps = {(dir.z() > 0.5) ? "Σg+" : "Πu"};
+          if (dir.z() > 0.5) {
+            ud.irreps = {on_center ? "Σu+" : "Σg+"};
+          } else {
+            ud.irreps = {on_center ? "Πu" : "Πg"};
+          }
         } else {
           ud.irreps = {(dir.z() > 0.5) ? "Σ+" : "Π"};
         }
@@ -468,7 +473,7 @@ Eigen::VectorXd symmetrize_gradient(const Analysis& analysis, const Eigen::Vecto
 
   Eigen::VectorXd avg = Eigen::VectorXd::Zero(3 * n);
   if (analysis.point_group != "Kh") {
-    if (analysis.linear || analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
+    if (analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
       for (int i = 0; i < n; ++i) {
         avg(3 * i + 2) = g_f(3 * i + 2);
       }
@@ -536,8 +541,7 @@ Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::Matrix
   if (analysis.point_group == "Kh") {
     const double iso = H_f.trace() / 3.0;
     avg = iso * Eigen::MatrixXd::Identity(n3, n3);
-  } else if (analysis.linear || analysis.point_group == "Cinfv" ||
-             analysis.point_group == "Dinfh") {
+  } else if (analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
         Eigen::Matrix3d block = H_f.block<3, 3>(3 * i, 3 * j);

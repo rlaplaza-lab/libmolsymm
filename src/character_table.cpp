@@ -251,6 +251,11 @@ bool is_prime_in_plane(const Vec3& axis, int n) {
     return true;
   }
   const Vec3 u = axis.normalized();
+  // Mulliken C2v (molecule in yz): σ(xz) with normal ‖ y is the prime vertical plane,
+  // so out-of-plane x transforms as B1.
+  if (n == 2) {
+    return std::abs(u.y()) >= std::abs(u.x());
+  }
   const double phi = std::atan2(u.y(), u.x());
   const double period = kPi / static_cast<double>(n);
   double t = std::fmod(std::abs(phi), 2.0 * period);
@@ -358,8 +363,9 @@ double axial_improper_base_chi(
     return axial_perp_chi(base, is_prime_in_plane(op.axis, n));
   }
   if (op.kind == OperationKind::ImproperRotation) {
-    // Odd Dnd: S = i·C → χ_g(S) = χ(C) via partner −S. Else σ_h·C via rotation_power.
-    if (dnd_ci) {
+    // Inversion doubling (even Dnh/Cnh, odd Dnd): χ_g(S(θ)) = χ(C(θ+π)) via −S.
+    // σh doubling (odd Dnh/Cnh): S = σh·C → χ(S) = χ(C) via rotation_power.
+    if (dnd_ci || !via_sigma_h) {
       int ord = 0;
       int pow = 0;
       Vec3 ax = Vec3::UnitZ();
@@ -421,7 +427,8 @@ CharacterTable table_cinfv() {
   ct.class_sizes = {1, 2, 0};
   add_irrep(ct, "Σ+", 1, {1, 1, 1});
   add_irrep(ct, "Σ-", 1, {1, 1, -1});
-  add_irrep(ct, "Π", 2, {2, 2, 0}); // 2 cos φ stored as harmonic via class label
+  // Degenerate rows are the φ = 0 snapshot used only for labeling; reduction is geometric.
+  add_irrep(ct, "Π", 2, {2, 2, 0});
   add_irrep(ct, "Δ", 2, {2, 2, 0});
   add_irrep(ct, "Φ", 2, {2, 2, 0});
   return ct;
@@ -544,8 +551,14 @@ int abstract_class_index(const std::string& fam,
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 4) {
       return 1;
     }
-    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
-      return (rep.axis.norm() > 1e-12 && std::abs(rep.axis.normalized().z()) > 0.9) ? 2 : 3;
+    if (rep.kind == OperationKind::ProperRotation) {
+      const bool on_z = rep.axis.norm() > 1e-12 && std::abs(rep.axis.normalized().z()) > 0.9;
+      // 180° rotations may be stored as C4^2 (order 4) when taken from O/Oh.
+      const bool is_180 =
+          rep.order == 2 || rotation_power(rep) == 2 || std::abs(rep.matrix.trace() + 1.0) < 1e-4;
+      if (is_180) {
+        return on_z ? 2 : 3; // C2 vs 2C2'
+      }
     }
     if (rep.kind == OperationKind::Reflection) {
       return 4;
@@ -558,7 +571,9 @@ int abstract_class_index(const std::string& fam,
       const int p = rotation_power(rep);
       return (p == 1 || p == 4) ? 1 : 2; // 4C3 vs 4C3^2
     }
-    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+    // Face-axis C2 may be stored as C4^2 (order 4) when T is taken from O/Oh.
+    if (rep.kind == OperationKind::ProperRotation &&
+        (rep.order == 2 || rotation_power(rep) == 2 || std::abs(rep.matrix.trace() + 1.0) < 1e-4)) {
       return 3;
     }
   } else if (fam == "Th") {
@@ -569,7 +584,8 @@ int abstract_class_index(const std::string& fam,
       const int p = rotation_power(rep);
       return (p == 1 || p == 4) ? 1 : 2;
     }
-    if (rep.kind == OperationKind::ProperRotation && rep.order == 2) {
+    if (rep.kind == OperationKind::ProperRotation &&
+        (rep.order == 2 || rotation_power(rep) == 2 || std::abs(rep.matrix.trace() + 1.0) < 1e-4)) {
       return 3;
     }
     if (rep.kind == OperationKind::Inversion) {
@@ -825,26 +841,32 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
         } else if (op.kind == OperationKind::ProperRotation ||
                    (op.kind == OperationKind::ImproperRotation && f == "Sn")) {
           chi = axial_principal_chi(base, rotation_power(op), op.order, nn);
+        } else if (op.kind == OperationKind::Inversion && f == "Sn" && nn % 2 == 0) {
+          // S_n ≅ C_n: i = S_n^{n/2} has the character of C_n^{n/2}.
+          chi = axial_principal_chi(base, nn / 2, nn, nn);
         } else if (op.kind == OperationKind::Inversion || op.kind == OperationKind::Reflection ||
                    op.kind == OperationKind::ImproperRotation) {
-          chi = has_parity_doubling
-                    ? axial_improper_base_chi(base, op, nn, has_sigma_h_doubling, false)
-                    : 1.0;
+          if (!has_parity_doubling) {
+            throw Error("unmapped conjugacy class for group " + fam);
+          }
+          chi = axial_improper_base_chi(base, op, nn, has_sigma_h_doubling, false);
           if (odd_parity) {
             chi = -chi;
           }
+        } else {
+          throw Error("unmapped conjugacy class for group " + fam);
         }
       } else if (is_dihedral_family) {
         const bool improper = op.kind == OperationKind::Inversion ||
                               op.kind == OperationKind::Reflection ||
                               op.kind == OperationKind::ImproperRotation;
         if (even_dnd) {
-          // Even Dnd ≅ C_{2n}v: S_{2n} plays the role of the C_{2n} generator.
+          // Even Dnd ≅ C_{2n}v: S_{2n} ↔ C_{2n}, so C_n = C_{2n}^{2} uses scale 2n/order.
           if (op.kind == OperationKind::ImproperRotation) {
             chi = axial_principal_chi(base, rotation_power(op), op.order, n_char);
           } else if (op.kind == OperationKind::ProperRotation && axis_on_z(op)) {
             chi = axial_principal_chi(
-                base, rotation_power(op) * (nn / std::max(op.order, 1)), n_char, n_char);
+                base, rotation_power(op) * (n_char / std::max(op.order, 1)), n_char, n_char);
           } else {
             chi = axial_base_chi(base, op, n_char);
           }
@@ -856,6 +878,8 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
         } else {
           chi = axial_base_chi(base, op, n_char);
         }
+      } else {
+        throw Error("unmapped conjugacy class for group " + fam);
       }
       indexed.characters[ir][static_cast<std::size_t>(ic)] = chi;
     }

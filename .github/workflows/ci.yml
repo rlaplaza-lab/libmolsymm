@@ -227,15 +227,18 @@ jobs:
             --xml-pretty \
             --print-summary \
             build
+          test -s coverage.xml
 
+      # Org has token auth disabled for public repos → tokenless upload on main.
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
           files: coverage.xml
+          disable_search: true
+          plugins: noop
           flags: unittests
           name: libmolsymm
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: true
 
   ci:
     name: CI gate

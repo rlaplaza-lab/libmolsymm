@@ -135,7 +135,7 @@ endif()
 
 if(MOLSYMM_BUILD_TESTS)
   enable_testing()
-  add_executable(molsymm_tests tests/test_main.cpp)
+  add_executable(molsymm_tests tests/test_main.cpp tests/test_group_math.cpp)
   target_link_libraries(molsymm_tests PRIVATE molsymm)
   molsymm_set_warnings(molsymm_tests)
   target_compile_definitions(molsymm_tests PRIVATE

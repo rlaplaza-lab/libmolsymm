@@ -48,7 +48,7 @@ program test_fortran
 
   block
     type(c_ptr) :: fhandle, ahandle
-    integer(c_int) :: nrep, npieces
+    integer(c_int) :: nrep, npieces, atom0
     real(c_double) :: rep_xyz(3,2), xyz_out(3,3)
     call ms_fragmentation(handle, fhandle, status)
     if (status /= 0) then
@@ -57,6 +57,11 @@ program test_fortran
     else
       call ms_n_representatives(fhandle, nrep, status)
       if (nrep /= 2) nfail = nfail + 1
+      call ms_representative_atom(fhandle, 1_c_int, atom0, status)
+      if (status /= 0 .or. atom0 /= 1_c_int) then
+        print *, "representative atom 1-based index expected 1, got ", atom0
+        nfail = nfail + 1
+      end if
       rep_xyz = xyz(:, 1:2)
       call ms_reconstruct(fhandle, rep_xyz, xyz_out, status)
       if (status /= 0 .or. maxval(abs(xyz_out - xyz)) > 1.0d-6) nfail = nfail + 1
