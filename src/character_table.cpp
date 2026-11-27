@@ -275,11 +275,23 @@ bool is_prime_in_plane(const Vec3& axis, int n) {
   }
   const double phi = std::atan2(u.y(), u.x());
   const double period = kPi / static_cast<double>(n);
-  double t = std::fmod(std::abs(phi), 2.0 * period);
+  const double two_period = 2.0 * period;
+  const double half = 0.5 * period;
+  // Fold into [0, period]; interior angles decide prime vs not.
+  double t = std::fmod(std::abs(phi), two_period);
   if (t > period) {
-    t = 2.0 * period - t;
+    t = two_period - t;
   }
-  return t <= 0.5 * period + 1e-8;
+  // Abs-fold maps both σv and σd onto the half-period ray (e.g. 22.5° for
+  // n=4 from Dnd→Cnv). Split that tie with the directed sector, as for n=2.
+  if (std::abs(t - half) <= 1e-8) {
+    double td = std::fmod(phi, two_period);
+    if (td < 0.0) {
+      td += two_period;
+    }
+    return td < period;
+  }
+  return t < half;
 }
 
 bool is_half_turn_rotation(const Operation& op) {
@@ -307,14 +319,11 @@ double axial_principal_chi(const std::string& base, int p, int order, int princi
   const int ord = std::max(order, 1);
   int k = p;
   int n_eff = ord;
-  if (principal_n > 0) {
-    if (principal_n % ord == 0) {
-      k = p * (principal_n / ord);
-      n_eff = principal_n;
-    } else if (ord % principal_n == 0) {
-      k = p / (ord / principal_n);
-      n_eff = principal_n;
-    }
+  // Remap (p/ord) → (k/principal_n) whenever that ratio is an integer multiple.
+  // Covers C4²↔C2, C2 in C4, and C6³ as the C2 of S4 (ord=6, principal_n=4).
+  if (principal_n > 0 && ord > 0 && (p * principal_n) % ord == 0) {
+    k = (p * principal_n) / ord;
+    n_eff = principal_n;
   }
   if (base == "A1" || base == "A" || base == "A2") {
     return 1.0;
@@ -523,14 +532,15 @@ int rotation_power_from_matrix(const Operation& op, bool canonicalize_axis) {
       (op.kind != OperationKind::ProperRotation && op.kind != OperationKind::ImproperRotation)) {
     return 0;
   }
-  Mat3 M = op.matrix;
-  if (op.kind == OperationKind::ImproperRotation) {
-    // S_n = σ · C_n along the same axis; recover the proper part.
-    M = reflection_matrix(op.axis) * op.matrix;
-  }
   Vec3 axis = (op.axis.norm() > 1e-12) ? op.axis.normalized() : Vec3::UnitZ();
   if (canonicalize_axis) {
     dominant_positive(axis);
+  }
+  Mat3 M = op.matrix;
+  if (op.kind == OperationKind::ImproperRotation) {
+    // S_n = σ · C_n along the same axis; recover the proper part using the
+    // (possibly flipped) axis so the skew·axis sign stays consistent.
+    M = reflection_matrix(axis) * op.matrix;
   }
   const double tr = M.trace();
   const double c = std::clamp((tr - 1.0) * 0.5, -1.0, 1.0);
@@ -650,8 +660,9 @@ int abstract_class_index(const std::string& fam,
       return 4;
     }
     if (rep.kind == OperationKind::ImproperRotation && rep.order == 6) {
-      const int p = canonical_rotation_power(rep);
-      return (p == 1) ? 5 : 6; // 4S6 vs 4S6^5
+      // Real Th characters are identical on 4S6 and 4S6^5; labels are split in
+      // build_character_table after conjugacy classes are known.
+      return 5;
     }
     if (rep.kind == OperationKind::Reflection) {
       return 7;
@@ -854,6 +865,25 @@ build_character_table(const std::string& name, int n, const std::vector<Operatio
       for (std::size_t ir = 0; ir < ct.characters.size(); ++ir) {
         indexed.characters[ir][static_cast<std::size_t>(ic)] =
             ct.characters[ir][static_cast<std::size_t>(abstract)];
+      }
+    }
+    // Real Th tables give 4S6 and 4S6^5 identical characters; axis-sign noise can
+    // map both conjugacy classes to the same abstract index. Force distinct labels.
+    if (f == "Th") {
+      int first = -1;
+      for (int ic = 0; ic < nclass; ++ic) {
+        const std::string& lab = indexed.class_labels[static_cast<std::size_t>(ic)];
+        if (lab != "4S6" && lab != "4S6^5") {
+          continue;
+        }
+        if (first < 0) {
+          first = ic;
+          continue;
+        }
+        if (lab == indexed.class_labels[static_cast<std::size_t>(first)]) {
+          indexed.class_labels[static_cast<std::size_t>(ic)] = (lab == "4S6") ? "4S6^5" : "4S6";
+        }
+        break;
       }
     }
     return indexed;

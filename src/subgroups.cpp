@@ -125,16 +125,31 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
           add(cn(k));
         }
       }
+      // Even Cnh contains S_k for even k|n (C4h→S4, C8h→S4/S8, …).
+      for (int k = 4; k <= n; ++k) {
+        if (k % 2 == 0 && n % k == 0) {
+          add("S" + std::to_string(k));
+        }
+      }
     } else if (n >= 2) {
       add(cn(n));
     }
     return s;
   }
   if (!name.empty() && name[0] == 'S' && n >= 2) {
-    if (n / 2 >= 2) {
-      add(cn(n / 2));
+    // Proper rotations: C_k for k|(n/2).
+    for (int k = 2; k <= n / 2; ++k) {
+      if ((n / 2) % k == 0) {
+        add(cn(k));
+      }
     }
     add("S" + std::to_string(n));
+    // S_m ⊂ S_n when m|n, m even ≥4, and n/m odd (S12→S4; not S8→S4).
+    for (int m = 4; m < n; ++m) {
+      if (m % 2 == 0 && n % m == 0 && (n / m) % 2 == 1) {
+        add("S" + std::to_string(m));
+      }
+    }
     if (n % 4 == 2) {
       add("Ci");
     }
@@ -163,7 +178,18 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       for (int k = 2; k < n; ++k) {
         if (n % k == 0) {
           add(dnh(k));
+          add(cnh(k));
           add(cnv(k));
+          // Dmd ⊂ Dnh iff m|n and (n/m) even (D4h→D2d, D6h→D3d, D8h→D2d/D4d;
+          // not D2d⊂D6h).
+          if ((n / k) % 2 == 0) {
+            add(dnd(k));
+          }
+        }
+      }
+      for (int k = 4; k <= n; ++k) {
+        if (k % 2 == 0 && n % k == 0) {
+          add("S" + std::to_string(k));
         }
       }
     } else if (name.back() == 'd') {
@@ -172,10 +198,18 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
       add(dn(n));
       add(dnd(n));
       add("S" + std::to_string(2 * n));
-      // Odd Dnd has no C2v; even Dnd does (via D2d).
+      for (int k = 2; k < n; ++k) {
+        if (n % k == 0) {
+          add(cnv(k));
+        }
+      }
+      // Odd Dnd has no C2v; even Dnd does. D2d only when n≡2 (mod 4) (has S4).
       if (n % 2 == 0) {
         add("C2v");
-        add("D2d");
+        if (n % 4 == 2) {
+          add("D2d");
+          add("S4");
+        }
       } else {
         add("Ci");
         add("C2h");
@@ -282,8 +316,26 @@ bool is_cn_generator(const Operation& op, int cn) {
 }
 
 bool is_sn_generator(const Operation& op, int sn) {
-  return op.kind == OperationKind::ImproperRotation && op.axis.norm() > 1e-12 && op.order == sn &&
-         (op.power == 1 || op.power == sn - 1);
+  if (op.kind != OperationKind::ImproperRotation || sn < 2 || op.axis.norm() < 1e-12) {
+    return false;
+  }
+  if (op.order == sn && (op.power == 1 || op.power == sn - 1)) {
+    return true;
+  }
+  // S12^3 generates S4; same divisor pattern as is_cn_generator.
+  if (op.order > sn && op.order % sn == 0 && op.power > 0) {
+    const int step = op.order / sn;
+    if (op.power == step || op.power == op.order - step) {
+      return true;
+    }
+  }
+  // Closure often leaves power=1; recover from σ·S when orders are compatible.
+  if (op.order < sn || op.order % sn != 0) {
+    return false;
+  }
+  const Mat3 proper = detail::reflection_matrix(op.axis) * op.matrix;
+  const double ang = std::acos(std::clamp((proper.trace() - 1.0) * 0.5, -1.0, 1.0));
+  return std::abs(ang - 2.0 * detail::kPi / static_cast<double>(sn)) < 1e-3;
 }
 
 const Operation* find_in_parent(const std::vector<Operation>& parent, const Mat3& M) {

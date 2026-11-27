@@ -684,6 +684,15 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
       }
     }
   }
+  // T/Th/O: C3 axes are body diagonals of the C2 (inertia) frame. Atom/pair
+  // heuristics miss them when no atom lies on a C3 (e.g. hexaaqua Th).
+  if (spherical) {
+    for (int sx : {-1, 1}) {
+      for (int sy : {-1, 1}) {
+        axis_set.add(Vec3(static_cast<double>(sx), static_cast<double>(sy), 1.0), tol.angle);
+      }
+    }
+  }
   const std::vector<Vec3>& axes = axis_set.axes;
 
   if (result.linear) {
@@ -777,11 +786,21 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
   std::vector<Vec3> c4a;
   std::vector<Vec3> c5a;
 
-  for (Operation& op : ops) {
-    if (op.kind == OperationKind::Inversion) {
-      has_inversion = true;
-    }
-    if (op.kind == OperationKind::ProperRotation) {
+  auto recount_axes = [&]() {
+    has_inversion = false;
+    highest_cn = 1;
+    primary_axis = Vec3::UnitZ();
+    c2_axes.clear();
+    c3a.clear();
+    c4a.clear();
+    c5a.clear();
+    for (Operation& op : ops) {
+      if (op.kind == OperationKind::Inversion) {
+        has_inversion = true;
+      }
+      if (op.kind != OperationKind::ProperRotation) {
+        continue;
+      }
       if (op.order > highest_cn) {
         highest_cn = op.order;
         primary_axis = op.axis.normalized();
@@ -796,7 +815,63 @@ Analysis analyze(const Molecule& molecule, const Tolerances& tol) {
         add_unique_axis(c5a, op.axis, tol.angle);
       }
     }
+  };
+  recount_axes();
+
+  // If three mutually perpendicular C2s are known but C3s are missing, seed
+  // body diagonals of that C2 frame (inertia-frame seeding may be misaligned).
+  if (c3a.size() < 4 && c2_axes.size() >= 3) {
+    Vec3 x = c2_axes[0].normalized();
+    Vec3 y;
+    bool found_y = false;
+    for (std::size_t i = 1; i < c2_axes.size(); ++i) {
+      if (std::abs(c2_axes[i].normalized().dot(x)) < 0.2) {
+        y = c2_axes[i].normalized();
+        found_y = true;
+        break;
+      }
+    }
+    if (found_y) {
+      Vec3 z = x.cross(y).normalized();
+      // Prefer a third C2 near z when available.
+      for (std::size_t i = 1; i < c2_axes.size(); ++i) {
+        if (std::abs(c2_axes[i].normalized().dot(z)) > 0.9) {
+          z = c2_axes[i].normalized();
+          y = z.cross(x).normalized();
+          break;
+        }
+      }
+      bool added = false;
+      for (int sx : {-1, 1}) {
+        for (int sy : {-1, 1}) {
+          const Vec3 diag =
+              (static_cast<double>(sx) * x + static_cast<double>(sy) * y + z).normalized();
+          AxisOrder ao =
+              highest_order_on_axis(mol.atoms, by_z, diag, tol.max_axis_order, tol.primary);
+          if (ao.n < 3) {
+            continue;
+          }
+          for (int k = 1; k < ao.n; ++k) {
+            Operation op;
+            op.kind = OperationKind::ProperRotation;
+            op.order = ao.n;
+            op.power = k;
+            op.axis = diag;
+            op.matrix = detail::rotation_matrix(diag, 2.0 * detail::kPi * k / ao.n);
+            op.image = (k == 1) ? ao.image : compose_perm(ao.image, k);
+            ops.push_back(std::move(op));
+            added = true;
+          }
+        }
+      }
+      if (added) {
+        detail::dedupe_operations(ops, mat_tol);
+        detail::close_group(ops, mol.atoms, tol.primary, mat_tol, tol.max_group_order);
+        recount_axes();
+      }
+    }
   }
+
   const int n_c3 = static_cast<int>(c3a.size());
   const int n_c4 = static_cast<int>(c4a.size());
   const int n_c5 = static_cast<int>(c5a.size());
