@@ -212,6 +212,95 @@ def test_zmatrix_water() -> None:
     assert a.symmetry_number == 2
 
 
+def test_symmetrize_water() -> None:
+    numbers = [8, 1, 1]
+    positions = np.array(
+        [
+            [0.0, 0.0, 0.1173],
+            [0.02, 0.7572, -0.4692],
+            [0.0, -0.7572, -0.4692],
+        ]
+    )
+    forces = np.array(
+        [
+            [0.0, 0.0, 0.1],
+            [0.05, 0.02, -0.05],
+            [0.0, -0.02, -0.05],
+        ]
+    )
+    hessian = np.eye(9)
+    hessian[3, 3] += 0.3
+    out = molsymm.symmetrize(
+        numbers, positions, "C2v", forces=forces, hessian=hessian, primary=1e-2
+    )
+    pos = np.asarray(out.positions, dtype=float)
+    fout = np.asarray(out.forces, dtype=float)
+    hout = np.asarray(out.hessian, dtype=float)
+    assert pos.shape == (3, 3)
+    assert fout.shape == (3, 3)
+    assert hout.shape == (9, 9)
+    a = molsymm.analyze(numbers, pos, primary=1e-2)
+    assert a.point_group == "C2v" and a.rmsd < 1e-8
+    again = molsymm.symmetrize(numbers, pos, "C2v", forces=fout, hessian=hout)
+    assert np.allclose(np.asarray(again.forces, dtype=float), fout, atol=1e-8)
+    assert np.allclose(np.asarray(again.hessian, dtype=float), hout, atol=1e-8)
+    assert abs(fout[1, 0]) < abs(forces[1, 0]) - 1e-4
+
+    only_f = molsymm.symmetrize(numbers, positions, "C2v", forces=forces, primary=1e-2)
+    assert only_f.forces is not None and only_f.hessian is None
+    only_h = molsymm.symmetrize(numbers, positions, "C2v", hessian=hessian, primary=1e-2)
+    assert only_h.forces is None and only_h.hessian is not None
+    geom = molsymm.symmetrize(numbers, positions, "C2v", primary=1e-2)
+    assert geom.forces is None and geom.hessian is None
+    assert np.asarray(geom.positions, dtype=float).shape == (3, 3)
+
+    flat = forces.reshape(-1)
+    flat_out = molsymm.symmetrize(numbers, positions, "C2v", forces=flat, primary=1e-2)
+    assert flat_out.forces is not None
+    assert np.asarray(flat_out.forces, dtype=float).shape == (3, 3)
+
+    try:
+        molsymm.symmetrize(numbers, positions, "Td")
+        raise AssertionError("expected RuntimeError for Td on water")
+    except RuntimeError:
+        pass
+
+
+def test_symmetrize_benzene_subgroup() -> None:
+    zs, xyz = _synthetic_benzene()
+    a = molsymm.analyze(zs, xyz)
+    asmbl = a.subgroup_assembly("C2v")
+    pieces = [xyz[atoms].copy() for atoms in asmbl.pieces]
+    site = 0
+    for p, atoms in enumerate(asmbl.pieces):
+        for i, _ in enumerate(atoms):
+            if asmbl.free_axes[site]:
+                pieces[p][i] = pieces[p][i] + 0.005 * np.asarray(asmbl.free_axes[site][0])
+            site += 1
+    rattled = asmbl.assemble(pieces)
+    keep = np.asarray(molsymm.symmetrize(zs, rattled, "C2v", primary=1e-2).positions, dtype=float)
+    full = np.asarray(molsymm.symmetrize(zs, rattled, "D6h", primary=1e-2).positions, dtype=float)
+    keep_err = float(np.linalg.norm(keep - rattled))
+    full_err = float(np.linalg.norm(full - rattled))
+    assert keep_err < 1e-3
+    assert full_err > keep_err + 1e-3
+
+
+def test_symmetrize_co2() -> None:
+    numbers = [6, 8, 8]
+    positions = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.16], [0.0, 0.0, -1.16]])
+    forces = np.zeros((3, 3))
+    forces[0, 0] = 0.1
+    forces[1, 2] = 0.2
+    forces[2, 2] = -0.15
+    out = molsymm.symmetrize(numbers, positions, "Dinfh", forces=forces)
+    assert out.forces is not None
+    fout = np.asarray(out.forces, dtype=float)
+    assert abs(fout[0, 0]) < 1e-10
+    assert abs(fout[1, 2] + fout[2, 2]) < 1e-10
+    assert abs(abs(fout[1, 2]) - 0.175) < 1e-10
+
+
 def _ops_permute(a: molsymm.Analysis, tol: float) -> bool:
     ops = a.operations
     if not ops:
@@ -260,5 +349,8 @@ if __name__ == "__main__":
     test_synthetic_benzene_subgroups()
     test_synthetic_s4()
     test_zmatrix_water()
+    test_symmetrize_water()
+    test_symmetrize_benzene_subgroup()
+    test_symmetrize_co2()
     test_manifest_corpus()
     print("python corpus ok")

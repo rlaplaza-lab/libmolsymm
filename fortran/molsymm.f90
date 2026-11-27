@@ -3,7 +3,7 @@ module molsymm
   implicit none
   private
   public :: ms_analyze, ms_release, ms_point_group_name, ms_symmetry_number, ms_order
-  public :: ms_symmetrize, ms_unique_displacements, ms_n_displacements
+  public :: ms_symmetrize, ms_symmetrize_data, ms_unique_displacements, ms_n_displacements
   public :: ms_displacement_geometry, ms_hessian_from_gradients, ms_release_displacements
   public :: ms_last_error, ms_zatom, ms_zmatrix_to_xyz, ms_analyze_zmatrix
   public :: ms_fragmentation, ms_release_fragmentation, ms_n_representatives
@@ -87,6 +87,21 @@ interface
     real(c_double), intent(out) :: rmsd
     real(c_double), intent(out) :: xyz_out(*)
     integer(c_int) :: molsymm_symmetrize
+  end function
+
+  function molsymm_symmetrize_data(z, xyz, n, point_group, primary, forces, hessian, &
+      rmsd, xyz_out, forces_out, hessian_out) bind(c, name="molsymm_symmetrize_data")
+    import :: c_int, c_double, c_ptr, c_char
+    integer(c_int), intent(in) :: z(*)
+    real(c_double), intent(in) :: xyz(*)
+    integer(c_int), value :: n
+    character(kind=c_char), intent(in) :: point_group(*)
+    real(c_double), value :: primary
+    type(c_ptr), value :: forces, hessian
+    real(c_double), intent(out) :: rmsd
+    real(c_double), intent(out) :: xyz_out(*)
+    type(c_ptr), value :: forces_out, hessian_out
+    integer(c_int) :: molsymm_symmetrize_data
   end function
 
   function molsymm_unique_displacements(a, step, out) bind(c, name="molsymm_unique_displacements")
@@ -359,6 +374,88 @@ contains
     do i = 1, n
       xyz_out(:, i) = flat(3*(i-1)+1:3*(i-1)+3)
     end do
+  end subroutine
+
+  subroutine ms_symmetrize_data(atomic_numbers, xyz, point_group, xyz_out, rmsd, status, &
+                                forces, hessian, forces_out, hessian_out, primary)
+    integer(c_int), intent(in) :: atomic_numbers(:)
+    real(c_double), intent(in) :: xyz(:,:)  ! (3,n)
+    character(len=*), intent(in) :: point_group
+    real(c_double), intent(out) :: xyz_out(:,:)  ! (3,n)
+    real(c_double), intent(out) :: rmsd
+    integer(c_int), intent(out) :: status
+    real(c_double), intent(in), optional :: forces(:,:)   ! (3,n)
+    real(c_double), intent(in), optional :: hessian(:,:)  ! (3n,3n)
+    real(c_double), intent(out), optional :: forces_out(:,:)
+    real(c_double), intent(out), optional :: hessian_out(:,:)
+    real(c_double), intent(in), optional :: primary
+    real(c_double) :: prim
+    real(c_double), allocatable, target :: flat(:), flat_out(:)
+    real(c_double), allocatable, target :: f_in(:), f_out(:), h_in(:), h_out(:)
+    character(kind=c_char), allocatable :: pg(:)
+    type(c_ptr) :: forces_ptr, hessian_ptr, forces_out_ptr, hessian_out_ptr
+    integer :: n, i, n3, j, ntrim
+    prim = 1.0d-3
+    if (present(primary)) prim = primary
+    n = size(atomic_numbers)
+    n3 = 3 * n
+    ntrim = len_trim(point_group)
+    allocate(flat(n3), flat_out(n3), pg(ntrim + 1))
+    do i = 1, n
+      flat(3*(i-1)+1:3*(i-1)+3) = xyz(:, i)
+    end do
+    do i = 1, ntrim
+      pg(i) = point_group(i:i)
+    end do
+    pg(ntrim + 1) = c_null_char
+
+    forces_ptr = c_null_ptr
+    hessian_ptr = c_null_ptr
+    forces_out_ptr = c_null_ptr
+    hessian_out_ptr = c_null_ptr
+    if (present(forces)) then
+      allocate(f_in(n3))
+      do i = 1, n
+        f_in(3*(i-1)+1:3*(i-1)+3) = forces(:, i)
+      end do
+      forces_ptr = c_loc(f_in(1))
+      if (present(forces_out)) then
+        allocate(f_out(n3))
+        forces_out_ptr = c_loc(f_out(1))
+      end if
+    end if
+    if (present(hessian)) then
+      allocate(h_in(n3 * n3))
+      do i = 1, n3
+        do j = 1, n3
+          h_in((i - 1) * n3 + j) = hessian(i, j)
+        end do
+      end do
+      hessian_ptr = c_loc(h_in(1))
+      if (present(hessian_out)) then
+        allocate(h_out(n3 * n3))
+        hessian_out_ptr = c_loc(h_out(1))
+      end if
+    end if
+
+    status = molsymm_symmetrize_data(atomic_numbers, flat, int(n, c_int), pg, prim, &
+                                     forces_ptr, hessian_ptr, rmsd, flat_out, &
+                                     forces_out_ptr, hessian_out_ptr)
+    do i = 1, n
+      xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
+    end do
+    if (present(forces) .and. present(forces_out)) then
+      do i = 1, n
+        forces_out(:, i) = f_out(3*(i-1)+1:3*(i-1)+3)
+      end do
+    end if
+    if (present(hessian) .and. present(hessian_out)) then
+      do i = 1, n3
+        do j = 1, n3
+          hessian_out(i, j) = h_out((i - 1) * n3 + j)
+        end do
+      end do
+    end if
   end subroutine
 
   subroutine ms_unique_displacements(handle, step, dhandle, status)

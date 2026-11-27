@@ -291,6 +291,61 @@ int molsymm_symmetrize(molsymm_analysis* a, double* rmsd, double* xyz_out) {
   });
 }
 
+int molsymm_symmetrize_data(const int* atomic_numbers,
+                            const double* xyz,
+                            int n,
+                            const char* point_group,
+                            double primary_tol,
+                            const double* forces,
+                            const double* hessian,
+                            double* rmsd,
+                            double* xyz_out,
+                            double* forces_out,
+                            double* hessian_out) {
+  return guard([&] {
+    if (!atomic_numbers || !xyz || n <= 0 || !point_group || !xyz_out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    molsymm::Molecule mol(std::span<const int>{atomic_numbers, static_cast<std::size_t>(n)},
+                          std::span<const double>{xyz, static_cast<std::size_t>(3 * n)});
+    molsymm::Tolerances tol;
+    tol.primary = primary_tol;
+
+    Eigen::VectorXd forces_vec;
+    const Eigen::VectorXd* forces_ptr = nullptr;
+    if (forces) {
+      forces_vec = Eigen::VectorXd::Map(forces, 3 * n);
+      forces_ptr = &forces_vec;
+    }
+    Eigen::MatrixXd hess_mat;
+    const Eigen::MatrixXd* hess_ptr = nullptr;
+    if (hessian) {
+      hess_mat =
+          Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+              hessian, 3 * n, 3 * n);
+      hess_ptr = &hess_mat;
+    }
+
+    molsymm::Symmetrized out = molsymm::symmetrize(mol, point_group, forces_ptr, hess_ptr, tol);
+    if (rmsd) {
+      *rmsd = out.rmsd;
+    }
+    for (int i = 0; i < n; ++i) {
+      const molsymm::Vec3& p = out.positions[static_cast<std::size_t>(i)];
+      xyz_out[3 * i] = p.x();
+      xyz_out[3 * i + 1] = p.y();
+      xyz_out[3 * i + 2] = p.z();
+    }
+    if (forces && forces_out) {
+      Eigen::Map<Eigen::VectorXd>(forces_out, 3 * n) = out.forces;
+    }
+    if (hessian && hessian_out) {
+      Eigen::Map<Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(
+          hessian_out, 3 * n, 3 * n) = out.hessian;
+    }
+  });
+}
+
 int molsymm_unique_displacements(const molsymm_analysis* a,
                                  double step,
                                  molsymm_displacements** out) {
@@ -426,8 +481,9 @@ int molsymm_make_fragmentation(const molsymm_analysis* a, molsymm_fragmentation*
     if (!a || !out) {
       throw molsymm::Error("invalid arguments");
     }
+    molsymm::Fragmentation frag = molsymm::fragmentation(a->a);
     auto* handle = new molsymm_fragmentation;
-    handle->frag = molsymm::fragmentation(a->a);
+    handle->frag = std::move(frag);
     *out = handle;
   });
 }
@@ -563,8 +619,9 @@ int molsymm_subgroup_assembly(const molsymm_analysis* a,
     if (!a || !subgroup || !out) {
       throw molsymm::Error("invalid arguments");
     }
+    molsymm::SubgroupAssembly assembly = molsymm::subgroup_assembly(a->a, subgroup);
     auto* handle = new molsymm_assembly;
-    handle->assembly = molsymm::subgroup_assembly(a->a, subgroup);
+    handle->assembly = std::move(assembly);
     *out = handle;
   });
 }

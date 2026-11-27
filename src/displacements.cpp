@@ -418,13 +418,45 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
   return H;
 }
 
+namespace {
+
+void project_linear_hessian_block(Eigen::Ref<Eigen::Matrix3d> block) {
+  Eigen::Matrix3d out = Eigen::Matrix3d::Zero();
+  out(0, 0) = out(1, 1) = 0.5 * (block(0, 0) + block(1, 1));
+  out(2, 2) = block(2, 2);
+  block = out;
+}
+
+int inversion_partner(const Analysis& analysis, int atom) {
+  const int n = analysis.original.size();
+  for (const Operation& op : analysis.operations) {
+    if (op.kind == OperationKind::Inversion && static_cast<int>(op.image.size()) == n) {
+      return op.image[static_cast<std::size_t>(atom)];
+    }
+  }
+  const Vec3 pi = analysis.molecule.atoms[static_cast<std::size_t>(atom)].position;
+  int partner = -1;
+  double best = 1e9;
+  for (int j = 0; j < n; ++j) {
+    if (analysis.molecule.atoms[static_cast<std::size_t>(j)].atomic_number !=
+        analysis.molecule.atoms[static_cast<std::size_t>(atom)].atomic_number) {
+      continue;
+    }
+    const double d = (analysis.molecule.atoms[static_cast<std::size_t>(j)].position + pi).norm();
+    if (d < best) {
+      best = d;
+      partner = j;
+    }
+  }
+  return partner;
+}
+
+} // namespace
+
 Eigen::VectorXd symmetrize_gradient(const Analysis& analysis, const Eigen::VectorXd& gradient) {
   const int n = analysis.original.size();
   if (gradient.size() != 3 * n) {
     throw Error("gradient size mismatch");
-  }
-  if (analysis.operations.empty()) {
-    return gradient;
   }
 
   const Mat3 R = analysis.orientation;
@@ -435,20 +467,48 @@ Eigen::VectorXd symmetrize_gradient(const Analysis& analysis, const Eigen::Vecto
   }
 
   Eigen::VectorXd avg = Eigen::VectorXd::Zero(3 * n);
-  int nop = 0;
-  for (const Operation& op : analysis.operations) {
-    if (static_cast<int>(op.image.size()) != n) {
-      continue;
-    }
-    ++nop;
-    for (int i = 0; i < n; ++i) {
-      const int j = op.image[static_cast<std::size_t>(i)];
-      avg.segment<3>(3 * j) += op.matrix * g_f.segment<3>(3 * i);
+  if (analysis.point_group != "Kh") {
+    if (analysis.linear || analysis.point_group == "Cinfv" || analysis.point_group == "Dinfh") {
+      for (int i = 0; i < n; ++i) {
+        avg(3 * i + 2) = g_f(3 * i + 2);
+      }
+      if (analysis.point_group == "Dinfh") {
+        std::vector<char> done(static_cast<std::size_t>(n), 0);
+        for (int i = 0; i < n; ++i) {
+          if (done[static_cast<std::size_t>(i)]) {
+            continue;
+          }
+          const int j = inversion_partner(analysis, i);
+          if (j < 0 || j >= n) {
+            continue;
+          }
+          const double fz = 0.5 * (avg(3 * i + 2) - avg(3 * j + 2));
+          avg(3 * i + 2) = fz;
+          avg(3 * j + 2) = -fz;
+          done[static_cast<std::size_t>(i)] = 1;
+          done[static_cast<std::size_t>(j)] = 1;
+        }
+      }
+    } else if (!analysis.operations.empty()) {
+      int nop = 0;
+      for (const Operation& op : analysis.operations) {
+        if (static_cast<int>(op.image.size()) != n) {
+          continue;
+        }
+        ++nop;
+        for (int i = 0; i < n; ++i) {
+          const int j = op.image[static_cast<std::size_t>(i)];
+          avg.segment<3>(3 * j) += op.matrix * g_f.segment<3>(3 * i);
+        }
+      }
+      if (nop > 0) {
+        avg /= static_cast<double>(nop);
+      }
+    } else {
+      avg = g_f;
     }
   }
-  if (nop > 0) {
-    avg /= static_cast<double>(nop);
-  }
+
   Eigen::VectorXd out = Eigen::VectorXd::Zero(3 * n);
   for (int i = 0; i < n; ++i) {
     out.segment<3>(3 * i) = Rinv * avg.segment<3>(3 * i);
@@ -462,9 +522,6 @@ Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::Matrix
   if (hessian.rows() != n3 || hessian.cols() != n3) {
     throw Error("hessian size mismatch");
   }
-  if (analysis.operations.empty()) {
-    return hessian;
-  }
 
   const Mat3 R = analysis.orientation;
   const Mat3 Rinv = R.transpose();
@@ -476,29 +533,95 @@ Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::Matrix
   }
 
   Eigen::MatrixXd avg = Eigen::MatrixXd::Zero(n3, n3);
-  int nop = 0;
-  for (const Operation& op : analysis.operations) {
-    if (static_cast<int>(op.image.size()) != n) {
-      continue;
-    }
-    ++nop;
+  if (analysis.point_group == "Kh") {
+    const double iso = H_f.trace() / 3.0;
+    avg = iso * Eigen::MatrixXd::Identity(n3, n3);
+  } else if (analysis.linear || analysis.point_group == "Cinfv" ||
+             analysis.point_group == "Dinfh") {
     for (int i = 0; i < n; ++i) {
-      const int ii = op.image[static_cast<std::size_t>(i)];
       for (int j = 0; j < n; ++j) {
-        const int jj = op.image[static_cast<std::size_t>(j)];
-        avg.block<3, 3>(3 * ii, 3 * jj) +=
-            op.matrix * H_f.block<3, 3>(3 * i, 3 * j) * op.matrix.transpose();
+        Eigen::Matrix3d block = H_f.block<3, 3>(3 * i, 3 * j);
+        project_linear_hessian_block(block);
+        avg.block<3, 3>(3 * i, 3 * j) = block;
       }
     }
+    if (analysis.point_group == "Dinfh") {
+      // Inversion (R = −I) leaves each block unchanged; average over atom images.
+      Eigen::MatrixXd paired = avg;
+      for (int i = 0; i < n; ++i) {
+        const int ii = inversion_partner(analysis, i);
+        if (ii < 0 || ii >= n) {
+          continue;
+        }
+        for (int j = 0; j < n; ++j) {
+          const int jj = inversion_partner(analysis, j);
+          if (jj < 0 || jj >= n) {
+            continue;
+          }
+          paired.block<3, 3>(3 * i, 3 * j) =
+              0.5 * (avg.block<3, 3>(3 * i, 3 * j) + avg.block<3, 3>(3 * ii, 3 * jj));
+        }
+      }
+      avg = paired;
+    }
+  } else if (!analysis.operations.empty()) {
+    int nop = 0;
+    for (const Operation& op : analysis.operations) {
+      if (static_cast<int>(op.image.size()) != n) {
+        continue;
+      }
+      ++nop;
+      for (int i = 0; i < n; ++i) {
+        const int ii = op.image[static_cast<std::size_t>(i)];
+        for (int j = 0; j < n; ++j) {
+          const int jj = op.image[static_cast<std::size_t>(j)];
+          avg.block<3, 3>(3 * ii, 3 * jj) +=
+              op.matrix * H_f.block<3, 3>(3 * i, 3 * j) * op.matrix.transpose();
+        }
+      }
+    }
+    if (nop > 0) {
+      avg /= static_cast<double>(nop);
+    }
+  } else {
+    avg = H_f;
   }
-  if (nop > 0) {
-    avg /= static_cast<double>(nop);
-  }
+
   Eigen::MatrixXd out = Eigen::MatrixXd::Zero(n3, n3);
   for (int i = 0; i < n; ++i) {
     for (int j = 0; j < n; ++j) {
       out.block<3, 3>(3 * i, 3 * j) = Rinv * avg.block<3, 3>(3 * i, 3 * j) * R;
     }
+  }
+  return out;
+}
+
+Symmetrized symmetrize(const Molecule& mol,
+                       std::string_view point_group,
+                       const Eigen::VectorXd* forces,
+                       const Eigen::MatrixXd* hessian,
+                       const Tolerances& tol) {
+  if (mol.size() == 0) {
+    throw Error("molecule has no atoms");
+  }
+  Analysis a = analyze(mol, tol);
+  if (point_group != a.point_group) {
+    a.select_subgroup(std::string(point_group));
+  }
+
+  const int n = a.original.size();
+  Symmetrized out;
+  out.rmsd = a.symmetrize();
+  out.positions.resize(static_cast<std::size_t>(n));
+  for (int i = 0; i < n; ++i) {
+    out.positions[static_cast<std::size_t>(i)] =
+        a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(i)].position);
+  }
+  if (forces != nullptr) {
+    out.forces = symmetrize_gradient(a, *forces);
+  }
+  if (hessian != nullptr) {
+    out.hessian = symmetrize_hessian(a, *hessian);
   }
   return out;
 }

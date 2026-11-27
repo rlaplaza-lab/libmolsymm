@@ -17,6 +17,34 @@ void require_finite_group(const Analysis& analysis) {
   }
 }
 
+int validate_operations(const std::vector<Operation>& ops, int n) {
+  if (ops.empty()) {
+    throw Error("analysis has no operations");
+  }
+  int identity = -1;
+  for (std::size_t oi = 0; oi < ops.size(); ++oi) {
+    const Operation& op = ops[oi];
+    if (static_cast<int>(op.image.size()) != n) {
+      throw Error("operation image size mismatch");
+    }
+    std::vector<char> seen(static_cast<std::size_t>(n), 0);
+    for (int i = 0; i < n; ++i) {
+      const int j = op.image[static_cast<std::size_t>(i)];
+      if (j < 0 || j >= n || seen[static_cast<std::size_t>(j)]) {
+        throw Error("operation image is not a permutation");
+      }
+      seen[static_cast<std::size_t>(j)] = 1;
+    }
+    if (op.kind == OperationKind::Identity) {
+      identity = static_cast<int>(oi);
+    }
+  }
+  if (identity < 0) {
+    throw Error("group has no identity");
+  }
+  return identity;
+}
+
 void canonicalize(Vec3& d) {
   for (int k = 0; k < 3; ++k) {
     if (std::abs(d(k)) > 1e-10) {
@@ -28,21 +56,15 @@ void canonicalize(Vec3& d) {
   }
 }
 
-Mat3 site_projector(const std::vector<Operation>& ops, int n, int atom) {
+Mat3 site_projector(const std::vector<Operation>& ops, int atom) {
   Mat3 P = Mat3::Zero();
   int count = 0;
   for (const Operation& op : ops) {
-    if (static_cast<int>(op.image.size()) != n) {
-      continue;
-    }
     if (op.image[static_cast<std::size_t>(atom)] != atom) {
       continue;
     }
     P += op.matrix;
     ++count;
-  }
-  if (count == 0) {
-    return Mat3::Identity();
   }
   return P / static_cast<double>(count);
 }
@@ -55,9 +77,6 @@ std::vector<Vec3> free_axes_of(const Mat3& projector, const Mat3& orientation) {
       continue;
     }
     Vec3 out = orientation.transpose() * es.eigenvectors().col(k).normalized();
-    if (out.norm() < 1e-12) {
-      continue;
-    }
     out.normalize();
     canonicalize(out);
     axes.push_back(out);
@@ -65,22 +84,12 @@ std::vector<Vec3> free_axes_of(const Mat3& projector, const Mat3& orientation) {
   return axes;
 }
 
-FragmentSite
-make_site(const std::vector<Operation>& ops, int n, int atom, const Mat3& orientation) {
+FragmentSite make_site(const std::vector<Operation>& ops, int atom, const Mat3& orientation) {
   FragmentSite site;
   site.atom = atom;
-  site.projector = site_projector(ops, n, atom);
+  site.projector = site_projector(ops, atom);
   site.free_axes = free_axes_of(site.projector, orientation);
   return site;
-}
-
-int find_identity(const std::vector<Operation>& ops) {
-  for (std::size_t i = 0; i < ops.size(); ++i) {
-    if (ops[i].kind == OperationKind::Identity) {
-      return static_cast<int>(i);
-    }
-  }
-  throw Error("group has no identity");
 }
 
 int image_of(const Operation& op, int atom) {
@@ -140,9 +149,6 @@ void write_geometry(Molecule& mol,
   for (std::size_t s = 0; s < reps.size(); ++s) {
     const Vec3& p = frame_reps[s];
     for (const Operation& op : ops) {
-      if (static_cast<int>(op.image.size()) != n) {
-        continue;
-      }
       const int img = image_of(op, reps[s]);
       if (written[static_cast<std::size_t>(img)]) {
         continue;
@@ -171,9 +177,32 @@ int cover_count(const Operation& op,
   return cover;
 }
 
+template <typename Eligible>
+int best_covering_op(const std::vector<Operation>& ops,
+                     const std::vector<int>& reps,
+                     const std::vector<char>& covered,
+                     int n,
+                     Eligible&& eligible) {
+  int best_op = -1;
+  int best_cover = -1;
+  for (std::size_t oi = 0; oi < ops.size(); ++oi) {
+    if (!eligible(ops[oi])) {
+      continue;
+    }
+    const int cover = cover_count(ops[oi], reps, covered, n);
+    if (cover > best_cover ||
+        (cover == best_cover && (best_op < 0 || static_cast<int>(oi) < best_op))) {
+      best_cover = cover;
+      best_op = static_cast<int>(oi);
+    }
+  }
+  return best_op;
+}
+
 std::vector<FragmentCopy> build_copies(const std::vector<Operation>& ops,
                                        const std::vector<int>& reps,
-                                       const std::vector<EquivalenceSet>& orbits) {
+                                       const std::vector<EquivalenceSet>& orbits,
+                                       int identity) {
   const int n = static_cast<int>(ops.front().image.size());
   const int gid = generic_orbit_index(orbits);
   if (gid < 0) {
@@ -188,7 +217,6 @@ std::vector<FragmentCopy> build_copies(const std::vector<Operation>& ops,
   auto append_copy = [&](int op_index) {
     const Operation& op = ops[static_cast<std::size_t>(op_index)];
     FragmentCopy copy;
-    copy.operation = op_index;
     for (int rep : reps) {
       const int img = image_of(op, rep);
       if (covered[static_cast<std::size_t>(img)]) {
@@ -202,7 +230,7 @@ std::vector<FragmentCopy> build_copies(const std::vector<Operation>& ops,
     }
   };
 
-  append_copy(find_identity(ops));
+  append_copy(identity);
 
   auto generic_uncovered = [&] {
     return std::any_of(generic.begin(), generic.end(), [&](int a) {
@@ -211,20 +239,9 @@ std::vector<FragmentCopy> build_copies(const std::vector<Operation>& ops,
   };
 
   while (generic_uncovered()) {
-    int best_op = -1;
-    int best_cover = -1;
-    for (std::size_t oi = 0; oi < ops.size(); ++oi) {
-      const int img_g = image_of(ops[oi], generic_rep);
-      if (covered[static_cast<std::size_t>(img_g)]) {
-        continue;
-      }
-      const int cover = cover_count(ops[oi], reps, covered, n);
-      if (cover > best_cover ||
-          (cover == best_cover && (best_op < 0 || static_cast<int>(oi) < best_op))) {
-        best_cover = cover;
-        best_op = static_cast<int>(oi);
-      }
-    }
+    const int best_op = best_covering_op(ops, reps, covered, n, [&](const Operation& op) {
+      return !covered[static_cast<std::size_t>(image_of(op, generic_rep))];
+    });
     if (best_op < 0) {
       throw Error("cannot build asymmetric-unit copies");
     }
@@ -235,26 +252,9 @@ std::vector<FragmentCopy> build_copies(const std::vector<Operation>& ops,
     if (covered[static_cast<std::size_t>(a)]) {
       continue;
     }
-    int best_op = -1;
-    int best_cover = -1;
-    for (std::size_t oi = 0; oi < ops.size(); ++oi) {
-      bool hits_a = false;
-      for (int rep : reps) {
-        if (image_of(ops[oi], rep) == a) {
-          hits_a = true;
-          break;
-        }
-      }
-      if (!hits_a) {
-        continue;
-      }
-      const int cover = cover_count(ops[oi], reps, covered, n);
-      if (cover > best_cover ||
-          (cover == best_cover && (best_op < 0 || static_cast<int>(oi) < best_op))) {
-        best_cover = cover;
-        best_op = static_cast<int>(oi);
-      }
-    }
+    const int best_op = best_covering_op(ops, reps, covered, n, [&](const Operation& op) {
+      return std::any_of(reps.begin(), reps.end(), [&](int rep) { return image_of(op, rep) == a; });
+    });
     if (best_op < 0) {
       throw Error("cannot cover atom in fragmentation");
     }
@@ -282,9 +282,7 @@ Fragmentation fragmentation(const Analysis& analysis) {
   if (n == 0) {
     throw Error("empty molecule");
   }
-  if (analysis.operations.empty()) {
-    throw Error("analysis has no operations");
-  }
+  const int identity = validate_operations(analysis.operations, n);
 
   Fragmentation frag;
   frag.center_of_mass = analysis.center_of_mass;
@@ -303,13 +301,13 @@ Fragmentation fragmentation(const Analysis& analysis) {
   frag.representatives = representatives_of(orbits);
   frag.sites.reserve(frag.representatives.size());
   for (int atom : frag.representatives) {
-    frag.sites.push_back(make_site(frag.operations, n, atom, frag.orientation));
+    frag.sites.push_back(make_site(frag.operations, atom, frag.orientation));
   }
   frag.mask.assign(static_cast<std::size_t>(n), 0);
   for (int atom : frag.representatives) {
     frag.mask[static_cast<std::size_t>(atom)] = 1;
   }
-  frag.copies = build_copies(frag.operations, frag.representatives, orbits);
+  frag.copies = build_copies(frag.operations, frag.representatives, orbits, identity);
   return frag;
 }
 
@@ -343,6 +341,7 @@ SubgroupAssembly subgroup_assembly(const Analysis& analysis, const std::string& 
   sub.select_subgroup(subgroup);
 
   const int n = sub.molecule.size();
+  validate_operations(sub.operations, n);
   const auto h_reps = representatives_of(detail::orbits_from_operations(sub.operations, n));
 
   SubgroupAssembly assembly;
@@ -371,7 +370,7 @@ SubgroupAssembly subgroup_assembly(const Analysis& analysis, const std::string& 
     piece.parent_copy = static_cast<int>(c);
     piece.atoms = std::move(by_copy[c]);
     for (int atom : piece.atoms) {
-      assembly.sites.push_back(make_site(assembly.operations, n, atom, assembly.orientation));
+      assembly.sites.push_back(make_site(assembly.operations, atom, assembly.orientation));
     }
     assembly.pieces.push_back(std::move(piece));
   }
@@ -394,14 +393,11 @@ Molecule assemble(const SubgroupAssembly& assembly,
       throw Error("piece position count mismatch");
     }
     for (std::size_t i = 0; i < assembly.pieces[p].atoms.size(); ++i) {
-      frame_reps.push_back(assembly.sites[site].projector *
-                           assembly.input_to_frame(piece_positions[p][i]));
+      frame_reps.emplace_back(assembly.sites[site].projector *
+                              assembly.input_to_frame(piece_positions[p][i]));
       reps.push_back(assembly.pieces[p].atoms[i]);
       ++site;
     }
-  }
-  if (site != assembly.sites.size()) {
-    throw Error("site count mismatch");
   }
 
   Molecule mol = molecule_shell(assembly.atomic_numbers, assembly.masses);

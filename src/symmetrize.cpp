@@ -17,7 +17,14 @@ double Analysis::symmetrize() {
   }
 
   const int n = molecule.size();
-  std::vector<Vec3> before(n);
+  // Rebuild from original so a later select_subgroup + symmetrize uses the subgroup,
+  // not a prior full-group projection already stored in molecule.
+  for (int i = 0; i < n; ++i) {
+    molecule.atoms[static_cast<std::size_t>(i)].position =
+        orientation * (original.atoms[static_cast<std::size_t>(i)].position - center_of_mass);
+  }
+
+  std::vector<Vec3> before(static_cast<std::size_t>(n));
   for (int i = 0; i < n; ++i) {
     before[static_cast<std::size_t>(i)] = molecule.atoms[static_cast<std::size_t>(i)].position;
   }
@@ -36,7 +43,7 @@ double Analysis::symmetrize() {
           break;
         }
       }
-      std::vector<char> done(n, 0);
+      std::vector<char> done(static_cast<std::size_t>(n), 0);
       for (int i = 0; i < n; ++i) {
         if (done[static_cast<std::size_t>(i)]) {
           continue;
@@ -80,7 +87,7 @@ double Analysis::symmetrize() {
   } else if (!operations.empty()) {
     // r'_i = (1/|G|) Σ_g R_g r_{g^{-1} i}
     const double inv_g = 1.0 / static_cast<double>(operations.size());
-    std::vector<Vec3> avg(n, Vec3::Zero());
+    std::vector<Vec3> avg(static_cast<std::size_t>(n), Vec3::Zero());
     std::vector<char> seen(static_cast<std::size_t>(n), 0);
     for (const Operation& op : operations) {
       if (static_cast<int>(op.image.size()) != n) {

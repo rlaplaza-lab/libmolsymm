@@ -24,13 +24,17 @@ molsymm::Analysis a = molsymm::analyze(molsymm::Molecule(/*Z*/, /*xyz flat*/));
 a.select_subgroup("C2v");
 a.symmetrize();  // updates frame geometry; RMS in a.rmsd
 
+// Project geometry + optional forces / Hessian onto a named point group:
+auto s = molsymm::symmetrize(mol, "C2v", &forces, &hessian);
+// s.rmsd, s.positions, s.forces, s.hessian
+
 auto d = molsymm::unique_displacements(a, 1e-3);
 // d.plus / d.minus → evaluate energies or gradients
 // d.gradient_from_energies(ep, em);
 // d.hessian_from_gradients(gp, gm);
 
 auto frag = molsymm::fragmentation(a);
-// frag.representatives, frag.mask, frag.free_axes (original input frame)
+// frag.representatives, frag.mask, frag.sites[i].free_axes (original input frame)
 molsymm::Molecule full = molsymm::reconstruct(frag, reps);
 auto asmbl = molsymm::subgroup_assembly(a, "C2");
 molsymm::Molecule lower = molsymm::assemble(asmbl, pieces);
@@ -59,6 +63,9 @@ molsymm_order(a, &order);
 molsymm_select_subgroup(a, "C2v");
 double rmsd, xyz_out[/*3*n*/];
 molsymm_symmetrize(a, &rmsd, xyz_out);
+/* Or one-shot: geometry + optional forces / Hessian (NULL to skip): */
+molsymm_symmetrize_data(z, xyz, n, "C2v", 1e-2, forces, hessian,
+                        &rmsd, xyz_out, forces_out, hessian_out);
 
 molsymm_displacements* d = NULL;
 molsymm_unique_displacements(a, 1e-3, &d);
@@ -98,6 +105,9 @@ a = molsymm.analyze([8, 1, 1], positions)
 # a.operations, a.irrep_names, a.atomic_numbers, a.frame_xyz
 a.select_subgroup("Cs")
 rms, xyz = a.symmetrize()
+# Project geometry and any supplied forces / Hessian onto a named group:
+out = molsymm.symmetrize([8, 1, 1], positions, "C2v", forces=forces, primary=1e-2)
+# out.rmsd; np.asarray(out.positions) is (n,3); forces / hessian are None when omitted
 d = a.displacements(step=1e-3)  # d.n, d.plus, d.minus
 # d.gradient_from_energies(ep, em); d.hessian_from_gradients(gp, gm)
 
@@ -121,6 +131,9 @@ call ms_point_group_name(handle, name, status)
 call ms_symmetry_number(handle, sigma, status)
 call ms_order(handle, order, status)
 call ms_symmetrize(handle, xyz_out, rmsd, status)
+! Or one-shot with optional forces / hessian:
+call ms_symmetrize_data(z, xyz, "C2v", xyz_out, rmsd, status, &
+                        forces=forces, forces_out=forces_out, primary=1.0d-2)
 call ms_unique_displacements(handle, 1.0d-3, dhandle, status)
 call ms_n_displacements(dhandle, nd, status)
 call ms_displacement_geometry(dhandle, i, 1, xyz_p, status)  ! 1=+ / 0=-

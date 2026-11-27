@@ -5,6 +5,7 @@
 #include <Eigen/Dense>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace molsymm {
@@ -46,5 +47,19 @@ DisplacementSet unique_displacements(const Analysis& analysis, double step = 1e-
 Eigen::VectorXd symmetrize_gradient(const Analysis& analysis, const Eigen::VectorXd& gradient);
 Eigen::MatrixXd symmetrize_hessian(const Analysis& analysis, const Eigen::MatrixXd& hessian);
 Eigen::MatrixXd project_external(const Analysis& analysis, const Eigen::MatrixXd& hessian);
+
+struct Symmetrized {
+  double rmsd = 0.0;
+  std::vector<Vec3> positions; // input frame
+  Eigen::VectorXd forces;      // length 3N, or empty if omitted
+  Eigen::MatrixXd hessian;     // 3N×3N, or empty if omitted
+};
+
+/// Project geometry and optional forces / Hessian onto `point_group`.
+Symmetrized symmetrize(const Molecule& mol,
+                       std::string_view point_group,
+                       const Eigen::VectorXd* forces = nullptr,
+                       const Eigen::MatrixXd* hessian = nullptr,
+                       const Tolerances& tol = {});
 
 } // namespace molsymm

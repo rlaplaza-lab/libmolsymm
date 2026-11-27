@@ -16,7 +16,6 @@ struct FragmentSite {
 };
 
 struct FragmentCopy {
-  int operation = 0;
   std::vector<int> atoms; // disjoint partition of the molecule
 };
 

@@ -52,6 +52,21 @@ int molsymm_subgroup_name(const molsymm_analysis* a, int index, char* buf, int b
 int molsymm_select_subgroup(molsymm_analysis* a, const char* name);
 int molsymm_symmetrize(molsymm_analysis* a, double* rmsd, double* xyz_out);
 
+/* Project geometry and optional forces / Hessian onto point_group.
+   xyz is length 3*n. forces (if non-NULL) is length 3*n. hessian (if non-NULL)
+   is row-major 3n×3n. Matching outputs may be NULL when the input is NULL. */
+int molsymm_symmetrize_data(const int* atomic_numbers,
+                            const double* xyz,
+                            int n,
+                            const char* point_group,
+                            double primary_tol,
+                            const double* forces,
+                            const double* hessian,
+                            double* rmsd,
+                            double* xyz_out,
+                            double* forces_out,
+                            double* hessian_out);
+
 int molsymm_unique_displacements(const molsymm_analysis* a,
                                  double step,
                                  molsymm_displacements** out);

@@ -1176,6 +1176,23 @@ double rms_vs_analysis(const molsymm::Analysis& a, const molsymm::Molecule& mol)
   return std::sqrt(sum / std::max(a.molecule.size(), 1));
 }
 
+void expect_axes_in_stabilizer(const molsymm::Analysis& a,
+                               const molsymm::FragmentSite& site,
+                               int expect_count,
+                               const std::string& label) {
+  expect(static_cast<int>(site.free_axes.size()) == expect_count,
+         label + " free-axis count " + std::to_string(site.free_axes.size()));
+  for (const auto& axis_in : site.free_axes) {
+    const molsymm::Vec3 v = a.orientation * axis_in;
+    for (const auto& op : a.operations) {
+      if (op.image[static_cast<std::size_t>(site.atom)] != site.atom) {
+        continue;
+      }
+      expect((op.matrix * v - v).norm() < 1e-8, label + " free axis in stabilizer +1");
+    }
+  }
+}
+
 void test_fragmentation() {
   {
     auto a = molsymm::analyze(water());
@@ -1192,10 +1209,39 @@ void test_fragmentation() {
       }
     }
     expect(covered == 3, "water copies cover all atoms");
+    expect_axes_in_stabilizer(a, frag.sites[1], 2, "water H");
 
     auto reps = input_positions(a, frag.representatives);
     expect(rms_vs_analysis(a, molsymm::reconstruct(frag, reps)) < 1e-10,
            "water reconstruct matches analysis");
+
+    // In-plane free-axis step is kept in the analysis frame; mirror-normal step is killed.
+    const int h = frag.representatives[1];
+    const molsymm::Vec3 h0 = a.molecule.atoms[static_cast<std::size_t>(h)].position;
+    molsymm::Vec3 mirror_n = molsymm::Vec3::Zero();
+    for (const auto& op : a.operations) {
+      if (op.kind == molsymm::OperationKind::Reflection &&
+          op.image[static_cast<std::size_t>(h)] == h) {
+        mirror_n = op.axis.normalized();
+        break;
+      }
+    }
+    expect(mirror_n.norm() > 0.5, "water H has a fixing reflection");
+    auto keep = reps;
+    keep[1] += 0.05 * frag.sites[1].free_axes[0];
+    auto mol_keep = molsymm::reconstruct(frag, keep);
+    const molsymm::Vec3 h_keep =
+        a.orientation * (mol_keep.atoms[static_cast<std::size_t>(h)].position - a.center_of_mass);
+    expect((h_keep - h0 - 0.05 * (a.orientation * frag.sites[1].free_axes[0])).norm() < 1e-10,
+           "water in-plane free-axis step kept");
+
+    auto kill = reps;
+    kill[1] += 0.05 * (a.orientation.transpose() * mirror_n);
+    auto mol_kill = molsymm::reconstruct(frag, kill);
+    const molsymm::Vec3 h_kill =
+        a.orientation * (mol_kill.atoms[static_cast<std::size_t>(h)].position - a.center_of_mass);
+    expect((h_kill - h0).norm() < 1e-10, "water mirror-normal step killed");
+
     reps[1] += molsymm::Vec3(0.25, 0.0, 0.0);
     expect(geometry_matches_ops(a, molsymm::reconstruct(frag, reps), 1e-8),
            "water rattle snaps to G");
@@ -1210,8 +1256,8 @@ void test_fragmentation() {
   {
     auto a = molsymm::analyze(methane());
     auto frag = molsymm::fragmentation(a);
-    expect(frag.sites[0].free_axes.empty() && frag.sites[1].free_axes.size() == 1,
-           "methane free axes C:0 H:1");
+    expect_axes_in_stabilizer(a, frag.sites[0], 0, "methane C");
+    expect_axes_in_stabilizer(a, frag.sites[1], 1, "methane H");
     auto reps = input_positions(a, frag.representatives);
     auto carbon = reps;
     carbon[0] += molsymm::Vec3(0.1, -0.05, 0.02);
@@ -1219,13 +1265,35 @@ void test_fragmentation() {
         (a.orientation * (molsymm::reconstruct(frag, carbon).atoms[0].position - a.center_of_mass))
                 .norm() < 1e-10,
         "methane carbon rattle projects to origin");
-    reps[1] += 0.05 * frag.sites[1].free_axes[0];
-    auto mol_h = molsymm::reconstruct(frag, reps);
-    expect(geometry_matches_ops(a, mol_h, 1e-8), "methane H rattle stays Td");
-    const double r1 = (a.orientation * (mol_h.atoms[1].position - a.center_of_mass)).norm();
+
+    const int h = frag.representatives[1];
+    const molsymm::Vec3 h0 = a.molecule.atoms[static_cast<std::size_t>(h)].position;
+    const molsymm::Vec3 axis = frag.sites[1].free_axes[0];
+    auto along = reps;
+    along[1] += 0.05 * axis;
+    auto mol_along = molsymm::reconstruct(frag, along);
+    const molsymm::Vec3 h_along =
+        a.orientation * (mol_along.atoms[static_cast<std::size_t>(h)].position - a.center_of_mass);
+    expect((h_along - h0 - 0.05 * (a.orientation * axis)).norm() < 1e-10,
+           "methane free-axis step kept on H");
+
+    molsymm::Vec3 ortho = axis.cross(molsymm::Vec3::UnitX());
+    if (ortho.norm() < 1e-8) {
+      ortho = axis.cross(molsymm::Vec3::UnitY());
+    }
+    ortho.normalize();
+    auto across = reps;
+    across[1] += 0.05 * ortho;
+    auto mol_across = molsymm::reconstruct(frag, across);
+    const molsymm::Vec3 h_across =
+        a.orientation * (mol_across.atoms[static_cast<std::size_t>(h)].position - a.center_of_mass);
+    expect((h_across - h0).norm() < 1e-10, "methane orthogonal step killed on H");
+
+    expect(geometry_matches_ops(a, mol_along, 1e-8), "methane H rattle stays Td");
+    const double r1 = h_along.norm();
     for (int i = 2; i < 5; ++i) {
       expect(std::abs((a.orientation *
-                       (mol_h.atoms[static_cast<std::size_t>(i)].position - a.center_of_mass))
+                       (mol_along.atoms[static_cast<std::size_t>(i)].position - a.center_of_mass))
                           .norm() -
                       r1) < 1e-8,
              "methane H rattle copied across orbit");
@@ -1237,6 +1305,7 @@ void test_fragmentation() {
     auto asmbl = molsymm::subgroup_assembly(a, "C2v");
     expect(asmbl.pieces.size() > 1, "benzene C2v has multiple pieces");
     std::vector<std::vector<molsymm::Vec3>> pieces;
+    pieces.reserve(asmbl.pieces.size());
     for (const auto& p : asmbl.pieces) {
       pieces.push_back(input_positions(a, p.atoms));
     }
@@ -1244,12 +1313,15 @@ void test_fragmentation() {
            "benzene assemble of originals matches");
 
     std::size_t site = 0;
-    for (std::size_t p = 0; p < pieces.size(); ++p) {
-      for (std::size_t i = 0; i < pieces[p].size(); ++i, ++site) {
+    bool first_piece = true;
+    for (auto& piece : pieces) {
+      for (auto& pos : piece) {
         if (!asmbl.sites[site].free_axes.empty()) {
-          pieces[p][i] += (p == 0 ? 0.04 : -0.03) * asmbl.sites[site].free_axes[0];
+          pos += (first_piece ? 0.04 : -0.03) * asmbl.sites[site].free_axes[0];
         }
+        ++site;
       }
+      first_piece = false;
     }
     auto mol_r = molsymm::assemble(asmbl, pieces);
     molsymm::Analysis sub = a;
@@ -1269,6 +1341,116 @@ void test_fragmentation() {
   }
 }
 
+void test_symmetrize_data() {
+  {
+    molsymm::Molecule mol = water();
+    mol.atoms[1].position.x() += 0.02;
+    const int n = mol.size();
+    const int n3 = 3 * n;
+    Eigen::VectorXd forces = Eigen::VectorXd::Zero(n3);
+    // Totally-symmetric stretch plus a C2v-breaking component on H1.
+    forces.segment<3>(0) = molsymm::Vec3(0.0, 0.0, 0.1);
+    forces.segment<3>(3) = molsymm::Vec3(0.05, 0.02, -0.05);
+    forces.segment<3>(6) = molsymm::Vec3(0.0, -0.02, -0.05);
+    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(n3, n3);
+    H(3, 3) += 0.3;
+
+    molsymm::Tolerances tol;
+    tol.primary = 1e-2;
+    auto out = molsymm::symmetrize(mol, "C2v", &forces, &H, tol);
+    expect(static_cast<int>(out.positions.size()) == n, "water symmetrize n positions");
+    expect(out.forces.size() == n3, "water symmetrize forces size");
+    expect(out.hessian.rows() == n3 && out.hessian.cols() == n3, "water symmetrize hessian size");
+
+    molsymm::Molecule sym_mol = water();
+    for (int i = 0; i < n; ++i) {
+      sym_mol.atoms[static_cast<std::size_t>(i)].position =
+          out.positions[static_cast<std::size_t>(i)];
+    }
+    auto a_sym = molsymm::analyze(sym_mol, tol);
+    expect(a_sym.point_group == "C2v" && a_sym.rmsd < 1e-8, "water symmetrize recovers exact C2v");
+
+    // Same noisy geometry → same projector → forces / Hessian are idempotent.
+    auto again = molsymm::symmetrize(mol, "C2v", &out.forces, &out.hessian, tol);
+    expect((again.forces - out.forces).norm() < 1e-8, "water forces idempotent under C2v");
+    expect((again.hessian - out.hessian).norm() / (out.hessian.norm() + 1e-15) < 1e-8,
+           "water hessian idempotent under C2v");
+
+    expect(std::abs(out.forces(3)) < std::abs(forces(3)) - 1e-4,
+           "water breaking Fx component reduced");
+  }
+
+  {
+    molsymm::Molecule mol = water();
+    Eigen::VectorXd forces = Eigen::VectorXd::Ones(9);
+    auto only_f = molsymm::symmetrize(mol, "C2v", &forces, nullptr);
+    expect(only_f.forces.size() == 9 && only_f.hessian.size() == 0, "forces-only omits hessian");
+    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(9, 9);
+    auto only_h = molsymm::symmetrize(mol, "C2v", nullptr, &H);
+    expect(only_h.forces.size() == 0 && only_h.hessian.rows() == 9, "hessian-only omits forces");
+    auto geom = molsymm::symmetrize(mol, "C2v", nullptr, nullptr);
+    expect(geom.forces.size() == 0 && geom.hessian.size() == 0 && geom.positions.size() == 3,
+           "geometry-only omits derivatives");
+  }
+
+  {
+    auto a = molsymm::analyze(benzene());
+    auto asmbl = molsymm::subgroup_assembly(a, "C2v");
+    std::vector<std::vector<molsymm::Vec3>> pieces;
+    pieces.reserve(asmbl.pieces.size());
+    for (const auto& p : asmbl.pieces) {
+      pieces.push_back(input_positions(a, p.atoms));
+    }
+    std::size_t site = 0;
+    for (auto& piece : pieces) {
+      for (auto& pos : piece) {
+        if (!asmbl.sites[site].free_axes.empty()) {
+          // Small enough that analyze still reports D6h with a loose primary.
+          pos += 0.005 * asmbl.sites[site].free_axes[0];
+        }
+        ++site;
+      }
+    }
+    molsymm::Molecule mol = molsymm::assemble(asmbl, pieces);
+    molsymm::Tolerances tol;
+    tol.primary = 1e-2;
+    auto keep_c2v = molsymm::symmetrize(mol, "C2v", nullptr, nullptr, tol);
+    auto full = molsymm::symmetrize(mol, "D6h", nullptr, nullptr, tol);
+    double keep_err = 0.0;
+    double full_err = 0.0;
+    for (int i = 0; i < mol.size(); ++i) {
+      keep_err += (keep_c2v.positions[static_cast<std::size_t>(i)] -
+                   mol.atoms[static_cast<std::size_t>(i)].position)
+                      .squaredNorm();
+      full_err += (full.positions[static_cast<std::size_t>(i)] -
+                   mol.atoms[static_cast<std::size_t>(i)].position)
+                      .squaredNorm();
+    }
+    expect(std::sqrt(keep_err / mol.size()) < 1e-4, "benzene C2v keeps C2v-preserving rattle");
+    expect(std::sqrt(full_err / mol.size()) > std::sqrt(keep_err / mol.size()) + 1e-4,
+           "benzene D6h removes more of the C2v-only rattle");
+  }
+
+  {
+    molsymm::Molecule mol = co2();
+    Eigen::VectorXd forces = Eigen::VectorXd::Zero(9);
+    forces(0) = 0.1;   // C Fx — must vanish
+    forces(5) = 0.2;   // O1 Fz
+    forces(8) = -0.15; // O2 Fz — average to ±0.175
+    auto out = molsymm::symmetrize(mol, "Dinfh", &forces, nullptr);
+    expect(std::abs(out.forces(0)) < 1e-10 && std::abs(out.forces(1)) < 1e-10,
+           "CO2 off-axis force removed");
+    expect(std::abs(out.forces(5) + out.forces(8)) < 1e-10, "CO2 partner Fz opposite");
+    expect(std::abs(std::abs(out.forces(5)) - 0.175) < 1e-10, "CO2 axial Fz averaged");
+  }
+
+  expect(throws_error([] {
+           molsymm::Molecule mol = water();
+           (void)molsymm::symmetrize(mol, "Td", nullptr, nullptr);
+         }),
+         "water Td subgroup throws");
+}
+
 } // namespace
 
 int main() {
@@ -1286,6 +1468,7 @@ int main() {
     test_xyz_large_rattle();
     test_zmatrix();
     test_fragmentation();
+    test_symmetrize_data();
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;
