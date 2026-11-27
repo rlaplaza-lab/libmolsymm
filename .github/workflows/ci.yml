@@ -183,6 +183,8 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          # Combinatorial synthetic/subgroup audits are prohibitively slow under ASan.
+          MOLSYMM_QUICK_TESTS: "1"
         run: ctest --test-dir build --output-on-failure --timeout 600
 
   coverage:

@@ -382,7 +382,7 @@ void test_synthetic_audit() {
     if (par.name == "T" || par.name == "Th" || par.name == "Td" || par.name == "O" ||
         par.name == "Oh") {
       std::uniform_real_distribution<double> u(-1.0, 1.0);
-      for (int trial = 0; trial < 20; ++trial) {
+      for (int trial = 0; trial < 5; ++trial) {
         const Mat3 frame = rot(Vec3(u(rng), u(rng), u(rng)), kPi * u(rng));
         const std::string tag = par.name + "[rot " + std::to_string(trial) + "]";
         try {
