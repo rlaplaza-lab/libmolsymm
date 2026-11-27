@@ -31,7 +31,8 @@ def _badge_svg(percent: float) -> str:
     color = _color(percent)
     aria = f"{label}: {message}"
     font = "DejaVu Sans,Verdana,Geneva,sans-serif"
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="20" role="img" aria-label="{aria}">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="20"
+     role="img" aria-label="{aria}">
   <title>{aria}</title>
   <linearGradient id="s" x2="0" y2="100%">
     <stop offset="0" stop-color="#bbb" stop-opacity=".1"/>
