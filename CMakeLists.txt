@@ -139,8 +139,6 @@ if(MOLSYMM_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_group_math.cpp
     tests/test_c_api.cpp
-    tests/test_synthetic_audit.cpp
-    tests/test_subgroup_probe.cpp
   )
   target_link_libraries(molsymm_tests PRIVATE molsymm)
   molsymm_set_warnings(molsymm_tests)
@@ -148,8 +146,21 @@ if(MOLSYMM_BUILD_TESTS)
     MOLSYMM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
   )
   add_test(NAME molsymm_tests COMMAND molsymm_tests)
-  # Matches CI ctest --timeout; synthetic audit + infinity tautology need ASan headroom.
-  set_tests_properties(molsymm_tests PROPERTIES TIMEOUT 600)
+  set_tests_properties(molsymm_tests PROPERTIES TIMEOUT 180)
+
+  # Combinatorial synthetic/subgroup/infinity-tautology audits (slow under ASan).
+  add_executable(molsymm_audit_tests
+    tests/test_audit_main.cpp
+    tests/test_synthetic_audit.cpp
+    tests/test_subgroup_probe.cpp
+  )
+  target_link_libraries(molsymm_audit_tests PRIVATE molsymm)
+  molsymm_set_warnings(molsymm_audit_tests)
+  target_compile_definitions(molsymm_audit_tests PRIVATE
+    MOLSYMM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
+  )
+  add_test(NAME molsymm_audit_tests COMMAND molsymm_audit_tests)
+  set_tests_properties(molsymm_audit_tests PROPERTIES TIMEOUT 600)
 endif()
 
 if(NOT DEFINED SKBUILD)

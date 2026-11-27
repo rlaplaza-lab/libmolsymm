@@ -7,7 +7,6 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <random>
@@ -1582,8 +1581,6 @@ void test_helpers_and_errors() {
 
 void test_group_math();
 void test_c_api();
-void test_synthetic_audit();
-void test_subgroup_probe();
 
 int main() {
   try {
@@ -1604,12 +1601,6 @@ int main() {
     test_helpers_and_errors();
     test_group_math();
     test_c_api();
-    // Heavy combinatorial audits: skip under ASan CI (MOLSYMM_QUICK_TESTS=1).
-    const char* quick = std::getenv("MOLSYMM_QUICK_TESTS");
-    if (quick == nullptr || quick[0] == '\0' || quick[0] == '0') {
-      test_synthetic_audit();
-      test_subgroup_probe();
-    }
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;
