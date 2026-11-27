@@ -2,7 +2,7 @@
 
 [![PyPI](https://img.shields.io/pypi/v/libmolsymm.svg)](https://pypi.org/project/libmolsymm/)
 [![CI](https://github.com/rlaplaza-lab/libmolsymm/actions/workflows/ci.yml/badge.svg)](https://github.com/rlaplaza-lab/libmolsymm/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/rlaplaza-lab/libmolsymm/branch/main/graph/badge.svg)](https://codecov.io/gh/rlaplaza-lab/libmolsymm)
+[![coverage](https://raw.githubusercontent.com/rlaplaza-lab/libmolsymm/main/.github/badges/coverage.svg)](https://github.com/rlaplaza-lab/libmolsymm/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://rlaplaza-lab.github.io/libmolsymm/)
 
 Point-group detection, character tables, subgroups, symmetrization,

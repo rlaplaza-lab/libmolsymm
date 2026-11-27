@@ -76,8 +76,8 @@ jobs:
       - name: ruff
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          ruff check tests
-          ruff format --check tests
+          ruff check tests .github/scripts
+          ruff format --check tests .github/scripts
 
   test:
     name: test (${{ matrix.compiler }}, ${{ matrix.build_type }})
@@ -182,6 +182,8 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-24.04
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -218,27 +220,39 @@ jobs:
 
       - name: Coverage report
         run: |
+          mkdir -p coverage-html
           gcovr --root . \
             --filter 'src/' \
             --filter 'include/' \
             --exclude-unreachable-branches \
             --exclude-throw-branches \
-            --xml coverage.xml \
-            --xml-pretty \
+            --html-details coverage-html/index.html \
+            --json-summary-pretty coverage-summary.json \
             --print-summary \
             build
-          test -s coverage.xml
+          test -s coverage-summary.json
+          test -f coverage-html/index.html
+          python3 .github/scripts/write_coverage_badge.py \
+            coverage-summary.json .github/badges/coverage.svg
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v5
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: coverage.xml
-          disable_search: true
-          plugins: noop
-          flags: unittests
-          name: libmolsymm
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          name: coverage-html
+          path: |
+            coverage-html/
+            coverage-summary.json
+          retention-days: 30
+
+      - name: Commit coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/coverage.svg
+          git diff --staged --quiet && exit 0
+          git commit -m "chore: update coverage badge [skip ci]"
+          git push
 
   ci:
     name: CI gate
