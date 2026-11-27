@@ -47,7 +47,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
     return s;
   }
   if (name == "Td") {
-    for (auto g : {"C2", "C3", "S4", "D2", "C2v", "C3v", "D2d", "T", "Td"}) {
+    for (auto g : {"C2", "C3", "Cs", "S4", "D2", "C2v", "C3v", "D2d", "T", "Td"}) {
       add(g);
     }
     return s;
@@ -59,7 +59,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
     return s;
   }
   if (name == "Th") {
-    for (auto g : {"C2", "C3", "Ci", "Cs", "C2h", "C3h", "D2", "D2h", "T", "Th"}) {
+    for (auto g : {"C2", "C3", "Ci", "Cs", "C2h", "S6", "D2", "D2h", "T", "Th"}) {
       add(g);
     }
     return s;
@@ -71,8 +71,9 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
     return s;
   }
   if (name == "Oh") {
-    for (auto g : {"C2",  "C3",  "C4", "Ci",  "Cs", "C2v", "C2h", "C3v", "C4v", "C4h", "D2",
-                   "D2h", "D2d", "D3", "D3d", "D4", "D4h", "Td",  "Th",  "T",   "O",   "Oh"}) {
+    for (auto g :
+         {"C2", "C3",  "C4",  "Ci", "Cs",  "C2v", "C2h", "C3v", "C4v", "C4h", "S4", "S6",
+          "D2", "D2h", "D2d", "D3", "D3d", "D4",  "D4h", "Td",  "Th",  "T",   "O",  "Oh"}) {
       add(g);
     }
     return s;
@@ -628,7 +629,42 @@ bool realize_subgroup(const std::string& name,
     return false;
   }
 
-  if (name == "Td" || name == "Th" || name == "O" || name == "Oh" || name == "I" || name == "Ih") {
+  if (name == "Th") {
+    const Operation* inv = nullptr;
+    for (const Operation& op : parent) {
+      if (op.kind == OperationKind::Inversion) {
+        inv = &op;
+        break;
+      }
+    }
+    if (inv == nullptr) {
+      return false;
+    }
+    for (const Operation& c3 : parent) {
+      if (c3.kind != OperationKind::ProperRotation || c3.order != 3) {
+        continue;
+      }
+      // Prefer face-axis C2 (stored as C4^2 in O/Oh); edge C2 does not generate Th.
+      for (const Operation& c2 : parent) {
+        if (!is_180_rotation(c2)) {
+          continue;
+        }
+        const bool face =
+            detail::axis_parallel_to_c4(c2.axis, parent) || (c2.order == 4 && is_180_rotation(c2));
+        if (face && attempt({c3, *inv, c2})) {
+          return true;
+        }
+      }
+      for (const Operation& c2 : parent) {
+        if (is_180_rotation(c2) && attempt({c3, *inv, c2})) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  if (name == "Td" || name == "O" || name == "Oh" || name == "I" || name == "Ih") {
     std::vector<Operation> gens;
     auto add_first = [&](auto pred) {
       for (const Operation& op : parent) {
@@ -648,14 +684,6 @@ bool realize_subgroup(const std::string& name,
           })) {
         add_first([](const Operation& op) { return op.kind == OperationKind::Reflection; });
       }
-    } else if (name == "Th") {
-      add_first([](const Operation& op) {
-        return op.kind == OperationKind::ProperRotation && op.order == 3;
-      });
-      add_first([](const Operation& op) { return op.kind == OperationKind::Inversion; });
-      add_first([](const Operation& op) {
-        return op.kind == OperationKind::ProperRotation && op.order == 2;
-      });
     } else if (name == "O") {
       add_first([](const Operation& op) {
         return op.kind == OperationKind::ProperRotation && op.order == 4 && op.power == 1;

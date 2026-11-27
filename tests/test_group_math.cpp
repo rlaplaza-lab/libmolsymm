@@ -242,7 +242,9 @@ void test_cubic_subgroups() {
   {
     auto a = molsymm::analyze(methane());
     expect(a.point_group == "Td", "methane Td");
+    expect(has_subgroup(a, "Cs"), "Td lists Cs");
     for (const auto& [name, order] : {std::pair<const char*, int>{"C2", 2},
+                                      {"Cs", 2},
                                       {"S4", 4},
                                       {"C2v", 4},
                                       {"D2", 4},
@@ -255,11 +257,32 @@ void test_cubic_subgroups() {
              std::string("methane→") + name + " order " + std::to_string(order));
       expect(!sub.character_table.irrep_names.empty(), std::string(name) + " has character table");
     }
+    auto t = a;
+    t.select_subgroup("T");
+    bool saw_c3 = false;
+    bool saw_c2 = false;
+    for (const auto& op : t.operations) {
+      if (op.kind == molsymm::OperationKind::ProperRotation && op.order == 3) {
+        expect(std::abs(chi_on(t, "E", op) + 1.0) < 1e-6, "T E(C3) = −1");
+        expect(std::abs(chi_on(t, "A", op) - 1.0) < 1e-6, "T A(C3) = +1");
+        saw_c3 = true;
+      }
+      if (op.kind == molsymm::OperationKind::ProperRotation &&
+          (op.order == 2 || std::abs(op.matrix.trace() + 1.0) < 1e-4)) {
+        expect(std::abs(chi_on(t, "T", op) + 1.0) < 1e-6, "T T(C2) = −1");
+        expect(std::abs(chi_on(t, "E", op) - 2.0) < 1e-6, "T E(C2) = +2");
+        saw_c2 = true;
+      }
+    }
+    expect(saw_c3 && saw_c2, "T has C3 and C2 classes");
   }
   {
     auto a = molsymm::analyze(sf6());
     expect(a.point_group == "Oh", "SF6 Oh");
+    expect(has_subgroup(a, "Th") && has_subgroup(a, "S4") && has_subgroup(a, "S6"),
+           "Oh lists Th/S4/S6");
     for (const auto& [name, order] : {std::pair<const char*, int>{"T", 12},
+                                      {"Th", 24},
                                       {"O", 24},
                                       {"Oh", 48},
                                       {"Ci", 2},
@@ -267,6 +290,8 @@ void test_cubic_subgroups() {
                                       {"C2h", 4},
                                       {"C4v", 8},
                                       {"C4h", 8},
+                                      {"S4", 4},
+                                      {"S6", 6},
                                       {"D2", 4},
                                       {"D2h", 8},
                                       {"D2d", 8},
@@ -280,14 +305,29 @@ void test_cubic_subgroups() {
              std::string("SF6→") + name + " order " + std::to_string(order));
       expect(!sub.character_table.irrep_names.empty(), std::string(name) + " has character table");
     }
-    expect(has_subgroup(a, "Th"), "SF6 lists Th");
-    try {
-      auto sub = a;
-      sub.select_subgroup("Th");
-      expect(false, "SF6→Th should throw");
-    } catch (const molsymm::Error&) {
-      expect(true, "SF6→Th throws");
+    auto th = a;
+    th.select_subgroup("Th");
+    expect(has_subgroup(th, "S6") && !has_subgroup(th, "C3h"), "Th lists S6 not C3h");
+    bool saw_i = false;
+    bool saw_s6 = false;
+    bool saw_sigma = false;
+    for (const auto& op : th.operations) {
+      if (op.kind == molsymm::OperationKind::Inversion) {
+        expect(std::abs(chi_on(th, "Eg", op) - 2.0) < 1e-6, "Th Eg(i) = +2");
+        expect(std::abs(chi_on(th, "Eu", op) + 2.0) < 1e-6, "Th Eu(i) = −2");
+        saw_i = true;
+      } else if (op.kind == molsymm::OperationKind::ImproperRotation && op.order == 6) {
+        // S6 = i·C3 → χ_u(S6) = −χ(C3) = +1 for real E.
+        expect(std::abs(chi_on(th, "Eu", op) - 1.0) < 1e-6, "Th Eu(S6) = +1");
+        expect(std::abs(chi_on(th, "Eg", op) + 1.0) < 1e-6, "Th Eg(S6) = −1");
+        saw_s6 = true;
+      } else if (op.kind == molsymm::OperationKind::Reflection) {
+        expect(std::abs(chi_on(th, "Eu", op) + 2.0) < 1e-6, "Th Eu(σh) = −2");
+        expect(std::abs(chi_on(th, "Eg", op) - 2.0) < 1e-6, "Th Eg(σh) = +2");
+        saw_sigma = true;
+      }
     }
+    expect(saw_i && saw_s6 && saw_sigma, "Th has i, S6, and σh");
   }
 }
 

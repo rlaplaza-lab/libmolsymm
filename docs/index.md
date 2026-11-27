@@ -37,6 +37,7 @@ The CMake / pkg-config package name is `molsymm`.
 | C `xyz` | Flat length `3*n` (`x0,y0,z0,…`) |
 | Fortran `xyz` | Shape `(3, n)` |
 | Primary tolerance | Default `1e-3` Å (geometry / equivalence) |
+| Character tables | Real Mulliken form; cyclic groups and `T`/`Th` fold complex-conjugate `E` pairs into one 2D row, so `Σ dim²` ≠ group order there |
 
 Analysis places the molecule in a Cotton / principal-axis frame with the
 center of mass at the origin. Displacement and reconstruct outputs are

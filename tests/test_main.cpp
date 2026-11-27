@@ -175,7 +175,7 @@ void expect_character_table_consistent(const molsymm::Analysis& a, const std::st
     return;
   }
   // Real Mulliken tables for Cn/Sn/Cnh (n≥3) and T/Th fold complex E pairs into
-  // real 1E/2E or one 2D E, so Σ dim² / complex orthogonality do not hold.
+  // one 2D E, so Σ dim² / complex orthogonality do not hold.
   if (is_pure_cn_or_sn(a.point_group) || a.point_group == "T" || a.point_group == "Th") {
     return;
   }
@@ -771,6 +771,7 @@ void test_high_symmetry_counts() {
                                     {"D2h", 8},
                                     {"D3d", 12},
                                     {"D5d", 20},
+                                    {"Th", 24},
                                     {"Ih", 120}}) {
     auto sub = c60;
     sub.select_subgroup(name);

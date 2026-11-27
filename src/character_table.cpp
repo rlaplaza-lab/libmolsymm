@@ -207,10 +207,9 @@ CharacterTable table_t() {
   CharacterTable ct;
   ct.class_labels = {"E", "4C3", "4C3^2", "3C2"};
   ct.class_sizes = {1, 4, 4, 3};
-  // Complex irreps (1E/2E); real parts of ω, ω² so dim² sums to |T|=12.
+  // Real Mulliken E = 1E ⊕ 2E (same real-form compromise as Cn).
   add_irrep(ct, "A", 1, {1, 1, 1, 1});
-  add_irrep(ct, "1E", 1, {1, -0.5, -0.5, 1});
-  add_irrep(ct, "2E", 1, {1, -0.5, -0.5, 1});
+  add_irrep(ct, "E", 2, {2, -1, -1, 2});
   add_irrep(ct, "T", 3, {3, 0, 0, -1});
   return ct;
 }
@@ -220,12 +219,10 @@ CharacterTable table_th() {
   ct.class_labels = {"E", "4C3", "4C3^2", "3C2", "i", "4S6", "4S6^5", "3σh"};
   ct.class_sizes = {1, 4, 4, 3, 1, 4, 4, 3};
   add_irrep(ct, "Ag", 1, {1, 1, 1, 1, 1, 1, 1, 1});
-  add_irrep(ct, "1Eg", 1, {1, -0.5, -0.5, 1, 1, -0.5, -0.5, 1});
-  add_irrep(ct, "2Eg", 1, {1, -0.5, -0.5, 1, 1, -0.5, -0.5, 1});
+  add_irrep(ct, "Eg", 2, {2, -1, -1, 2, 2, -1, -1, 2});
   add_irrep(ct, "Tg", 3, {3, 0, 0, -1, 3, 0, 0, -1});
   add_irrep(ct, "Au", 1, {1, 1, 1, 1, -1, -1, -1, -1});
-  add_irrep(ct, "1Eu", 1, {1, -0.5, -0.5, 1, -1, 0.5, 0.5, -1});
-  add_irrep(ct, "2Eu", 1, {1, -0.5, -0.5, 1, -1, 0.5, 0.5, -1});
+  add_irrep(ct, "Eu", 2, {2, -1, -1, 2, -2, 1, 1, -2});
   add_irrep(ct, "Tu", 3, {3, 0, 0, -1, -3, 0, 0, 1});
   return ct;
 }
