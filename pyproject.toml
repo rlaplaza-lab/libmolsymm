@@ -62,7 +62,8 @@ test-extras = []
 [tool.cibuildwheel.linux]
 archs = ["auto"]
 
-# Intel + Apple Silicon on macos-14. 10.13+ required for aligned new/delete (nanobind).
+# Intel + Apple Silicon on macos-15 (macos-14 retired 2026-11-02).
+# 11.0+ required for aligned new/delete (nanobind).
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
 environment = "MACOSX_DEPLOYMENT_TARGET=11.0"
