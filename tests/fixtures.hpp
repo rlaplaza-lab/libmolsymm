@@ -84,4 +84,10 @@ inline molsymm::Molecule co() {
   return molsymm::Molecule(z, xyz);
 }
 
+inline molsymm::Molecule h2() {
+  std::vector<int> z{1, 1};
+  std::vector<double> xyz{0, 0, 0.37, 0, 0, -0.37};
+  return molsymm::Molecule(z, xyz);
+}
+
 } // namespace molsymm::test

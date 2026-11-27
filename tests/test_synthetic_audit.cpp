@@ -1,12 +1,13 @@
 // Synthetic point-group audit: listed vs enumerated subgroups, character tables
 // on every realization, cubic orientation robustness, axis-free T/Th detection.
+// Also tautology from H2/CO: apply generators stepwise and re-detect each step.
+#include "fixtures.hpp"
+#include "group_gen.hpp"
 #include "molsymm/molsymm.hpp"
-
 #include "table_checks.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <random>
@@ -17,11 +18,19 @@
 
 using molsymm::Analysis;
 using molsymm::Mat3;
+using molsymm::Molecule;
 using molsymm::Vec3;
+using molsymm::test::close_group;
+using molsymm::test::co;
+using molsymm::test::h2;
+using molsymm::test::kPi;
+using molsymm::test::mat_near;
+using molsymm::test::molecule_of;
+using molsymm::test::refl;
+using molsymm::test::rot;
 
 namespace {
 
-const double kPi = 3.14159265358979323846;
 int g_fail = 0;
 
 void fail(const std::string& msg) {
@@ -33,104 +42,78 @@ void check_table(const Analysis& a, const std::string& label) {
   molsymm::test::check_character_table(a, label, fail);
 }
 
-Mat3 rot(const Vec3& axis, double ang) {
-  return Eigen::AngleAxisd(ang, axis.normalized()).toRotationMatrix();
-}
-Mat3 refl(const Vec3& n) {
-  const Vec3 u = n.normalized();
-  return Mat3::Identity() - 2.0 * u * u.transpose();
-}
-
-bool same(const Mat3& a, const Mat3& b) {
-  return (a - b).cwiseAbs().maxCoeff() < 1e-8;
-}
-
-std::vector<Mat3> close(std::vector<Mat3> g) {
-  g.insert(g.begin(), Mat3::Identity());
-  bool grew = true;
-  while (grew) {
-    grew = false;
-    const std::size_t n = g.size();
-    for (std::size_t i = 0; i < n; ++i) {
-      for (std::size_t j = 0; j < n; ++j) {
-        const Mat3 p = g[i] * g[j];
-        if (std::none_of(g.begin(), g.end(), [&](const Mat3& m) { return same(m, p); })) {
-          g.push_back(p);
-          grew = true;
-        }
-      }
-    }
-    if (g.size() > 240) {
-      break;
-    }
-  }
-  return g;
-}
-
-molsymm::Molecule molecule_of(const std::vector<Mat3>& g,
-                              const Mat3& frame,
-                              std::mt19937* shuffle, // NOLINT(readability-non-const-parameter)
-                              bool axis_atoms = true) {
-  // Generic seed points with distinct elements; small groups need more orbits to
-  // avoid accidental planarity.
+Molecule axis_orbit(const Molecule& axis, const std::vector<Mat3>& g, std::size_t norb) {
   const std::array<Vec3, 4> seeds{Vec3(1.13, 0.37, 0.71),
                                   Vec3(0.52, 1.41, -0.33),
                                   Vec3(-0.87, 0.29, 1.52),
                                   Vec3(0.41, -1.07, -1.23)};
-  const std::array<int, 4> zs{6, 7, 8, 9};
-  const std::size_t norb = g.size() <= 12 ? 4 : 2;
-  std::vector<std::pair<int, Vec3>> atoms;
-  for (std::size_t s = 0; s < norb; ++s) {
-    for (const Mat3& m : g) {
-      atoms.emplace_back(zs[s], frame * (m * seeds[s]));
-    }
-  }
-  if (axis_atoms) {
-    std::vector<Vec3> dirs;
-    for (const Mat3& m : g) {
-      const Mat3 r = (m.determinant() > 0) ? m : Mat3(-m);
-      if (same(r, Mat3::Identity())) {
-        continue;
-      }
-      const Eigen::AngleAxisd aa(r);
-      for (const Vec3& d : {Vec3(aa.axis()), Vec3(-aa.axis())}) {
-        if (std::none_of(
-                dirs.begin(), dirs.end(), [&](const Vec3& q) { return (q - d).norm() < 1e-6; })) {
-          dirs.push_back(d);
-        }
-      }
-    }
-    for (const Vec3& d : dirs) {
-      atoms.emplace_back(1, frame * (1.9 * d));
-    }
-  }
-  if (shuffle != nullptr) {
-    std::shuffle(atoms.begin(), atoms.end(), *shuffle);
-  }
+  const std::array<int, 4> zs{9, 17, 35, 53};
   std::vector<int> z;
   std::vector<double> xyz;
-  for (const auto& [zi, p] : atoms) {
-    z.push_back(zi);
-    xyz.insert(xyz.end(), {p.x(), p.y(), p.z()});
+  for (const auto& a : axis.atoms) {
+    z.push_back(a.atomic_number);
+    xyz.insert(xyz.end(), {a.position.x(), a.position.y(), a.position.z()});
   }
-  return molsymm::Molecule(z, xyz);
+  for (std::size_t s = 0; s < norb; ++s) {
+    std::vector<Vec3> orbit;
+    for (const Mat3& m : g) {
+      const Vec3 p = m * seeds[s];
+      if (std::none_of(
+              orbit.begin(), orbit.end(), [&](const Vec3& q) { return (q - p).norm() < 1e-8; })) {
+        orbit.push_back(p);
+      }
+    }
+    for (const Vec3& p : orbit) {
+      z.push_back(zs[s]);
+      xyz.insert(xyz.end(), {p.x(), p.y(), p.z()});
+    }
+  }
+  return Molecule(z, xyz);
+}
+
+bool matrices_permute(const Molecule& mol, const std::vector<Mat3>& g, double tol) {
+  const int n = mol.size();
+  for (const Mat3& R : g) {
+    std::vector<char> claimed(static_cast<std::size_t>(n), 0);
+    for (int i = 0; i < n; ++i) {
+      const Vec3 rp = R * mol.atoms[static_cast<std::size_t>(i)].position;
+      const int zi = mol.atoms[static_cast<std::size_t>(i)].atomic_number;
+      int best = -1;
+      double best_d = tol;
+      for (int j = 0; j < n; ++j) {
+        if (claimed[static_cast<std::size_t>(j)] ||
+            mol.atoms[static_cast<std::size_t>(j)].atomic_number != zi) {
+          continue;
+        }
+        const double d = (rp - mol.atoms[static_cast<std::size_t>(j)].position).norm();
+        if (d <= best_d) {
+          best_d = d;
+          best = j;
+        }
+      }
+      if (best < 0) {
+        return false;
+      }
+      claimed[static_cast<std::size_t>(best)] = 1;
+    }
+  }
+  return true;
 }
 
 using Bits = std::array<std::uint64_t, 2>;
 
-// All subgroups generated by ≤3 elements (pairs plus inversion for big groups).
 std::set<Bits> enumerate_subgroups(const std::vector<Mat3>& g) {
   const int h = static_cast<int>(g.size());
   std::vector<std::vector<int>> mul(static_cast<std::size_t>(h), std::vector<int>(h, -1));
   int inv_idx = -1;
   for (int i = 0; i < h; ++i) {
-    if (same(g[static_cast<std::size_t>(i)], -Mat3::Identity())) {
+    if (mat_near(g[static_cast<std::size_t>(i)], -Mat3::Identity())) {
       inv_idx = i;
     }
     for (int j = 0; j < h; ++j) {
       const Mat3 p = g[static_cast<std::size_t>(i)] * g[static_cast<std::size_t>(j)];
       for (int k = 0; k < h; ++k) {
-        if (same(g[static_cast<std::size_t>(k)], p)) {
+        if (mat_near(g[static_cast<std::size_t>(k)], p)) {
           mul[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = k;
           break;
         }
@@ -225,13 +208,101 @@ std::string join(const std::set<std::string>& s) {
   return o;
 }
 
+void expect_step(const std::string& tag,
+                 const Molecule& mol,
+                 const std::vector<Mat3>& planted,
+                 const std::string& expect) {
+  Analysis a;
+  try {
+    a = molsymm::analyze(mol);
+  } catch (const std::exception& e) {
+    fail(tag + " analyze threw: " + e.what());
+    return;
+  }
+  if (a.point_group != expect) {
+    fail(tag + " detected as " + a.point_group + " (want " + expect + ")");
+    return;
+  }
+  if (!a.infinite && !matrices_permute(mol, planted, 1e-6)) {
+    fail(tag + " planted ops do not permute atoms");
+  }
+  if (!a.infinite && a.order != static_cast<int>(planted.size())) {
+    fail(tag + " order " + std::to_string(a.order) + " != planted " +
+         std::to_string(planted.size()));
+  }
+}
+
+void tautology_from_infinity() {
+  const Molecule axis_h2 = h2();
+  const Molecule axis_co = co();
+  if (molsymm::analyze(axis_h2).point_group != "Dinfh") {
+    fail("H2 axis not Dinfh");
+  }
+  if (molsymm::analyze(axis_co).point_group != "Cinfv") {
+    fail("CO axis not Cinfv");
+  }
+
+  const Vec3 z = Vec3::UnitZ();
+  const Mat3 c2x = rot(Vec3::UnitX(), kPi);
+  const Mat3 sh = refl(z);
+  const Mat3 sv = refl(Vec3::UnitY());
+  const Mat3 inv = -Mat3::Identity();
+
+  struct Step {
+    Mat3 gen{};
+    std::string expect{};
+  };
+  struct Sc {
+    std::string name{};
+    const Molecule* axis = nullptr;
+    std::vector<Step> steps{};
+  };
+
+  std::vector<Sc> scs{
+      {"C1", &axis_co, {}}, {"Cs", &axis_h2, {{sh, "Cs"}}}, {"Ci", &axis_h2, {{inv, "Ci"}}}};
+  for (int n = 2; n <= 12; ++n) {
+    const std::string s = std::to_string(n);
+    const Mat3 cn = rot(z, 2.0 * kPi / n);
+    const Mat3 s2n = sh * rot(z, kPi / n);
+    scs.push_back({"C" + s, &axis_co, {{cn, "C" + s}}});
+    scs.push_back({"C" + s + "v", &axis_co, {{cn, "C" + s}, {sv, "C" + s + "v"}}});
+    scs.push_back({"C" + s + "h", &axis_h2, {{cn, "C" + s}, {sh, "C" + s + "h"}}});
+    scs.push_back({"D" + s, &axis_h2, {{cn, "C" + s}, {c2x, "D" + s}}});
+    scs.push_back({"D" + s + "h", &axis_h2, {{cn, "C" + s}, {c2x, "D" + s}, {sh, "D" + s + "h"}}});
+    scs.push_back(
+        {"D" + s + "d", &axis_h2, {{s2n, "S" + std::to_string(2 * n)}, {c2x, "D" + s + "d"}}});
+  }
+  for (int n : {4, 6, 8, 10, 12}) {
+    scs.push_back({"S" + std::to_string(n),
+                   &axis_h2,
+                   {{sh * rot(z, 2.0 * kPi / n), "S" + std::to_string(n)}}});
+  }
+
+  for (const Sc& sc : scs) {
+    std::vector<Mat3> gens;
+    if (sc.steps.empty()) {
+      const auto planted = close_group(std::vector<Mat3>{});
+      expect_step(sc.name, axis_orbit(*sc.axis, planted, 2), planted, sc.name);
+      continue;
+    }
+    for (std::size_t i = 0; i < sc.steps.size(); ++i) {
+      gens.push_back(sc.steps[i].gen);
+      const auto planted = close_group(gens);
+      expect_step(sc.name + "[" + std::to_string(i + 1) + "->" + sc.steps[i].expect + "]",
+                  axis_orbit(*sc.axis, planted, planted.size() <= 12 ? 4 : 2),
+                  planted,
+                  sc.steps[i].expect);
+    }
+  }
+}
+
 } // namespace
 
 void test_synthetic_audit() {
   g_fail = 0;
   std::mt19937 rng(12345);
   for (const Parent& par : parents()) {
-    const std::vector<Mat3> g = close(par.gens);
+    const std::vector<Mat3> g = close_group(par.gens);
     Analysis a;
     try {
       a = molsymm::analyze(molecule_of(g, Mat3::Identity(), nullptr));
@@ -245,14 +316,12 @@ void test_synthetic_audit() {
     }
     check_table(a, par.name);
 
-    // Soundness: every listed subgroup must realize with a valid table.
     const std::set<std::string> listed(a.subgroups.begin(), a.subgroups.end());
     for (const std::string& sg : a.subgroups) {
       try {
         Analysis s = a;
         s.select_subgroup(sg);
         check_table(s, par.name + "->" + sg);
-        // One more level, to exercise tables inherited through a subgroup.
         for (const std::string& sg2 : s.subgroups) {
           try {
             Analysis s2 = s;
@@ -267,7 +336,6 @@ void test_synthetic_audit() {
       }
     }
 
-    // Completeness: classify every actual subgroup by analyzing a generic molecule of it.
     std::set<std::string> actual;
     for (const Bits& b : enumerate_subgroups(g)) {
       std::vector<Mat3> hsub;
@@ -306,7 +374,6 @@ void test_synthetic_audit() {
       fail(par.name + " lists non-subgroups: " + join(extra));
     }
 
-    // Orientation / atom-order robustness for the cubic groups.
     if (par.name == "T" || par.name == "Th" || par.name == "Td" || par.name == "O" ||
         par.name == "Oh") {
       std::uniform_real_distribution<double> u(-1.0, 1.0);
@@ -336,7 +403,7 @@ void test_synthetic_audit() {
   }
 
   for (const Parent& par : parents()) {
-    const std::vector<Mat3> g = close(par.gens);
+    const std::vector<Mat3> g = close_group(par.gens);
     try {
       const Analysis a = molsymm::analyze(molecule_of(g, Mat3::Identity(), nullptr, false));
       if (a.point_group != par.name) {
@@ -347,7 +414,6 @@ void test_synthetic_audit() {
     }
   }
   {
-    // [M(H2O)6] in Th: O on the C2 axes, H in the three mirror planes.
     std::vector<int> z{26};
     std::vector<double> xyz{0, 0, 0};
     const double ro = 2.0;
@@ -371,6 +437,8 @@ void test_synthetic_audit() {
       fail("Th hexaaqua detected as " + a2.point_group);
     }
   }
+
+  tautology_from_infinity();
 
   if (g_fail != 0) {
     throw std::runtime_error(std::to_string(g_fail) + " synthetic-audit failures");
