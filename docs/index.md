@@ -4,7 +4,8 @@ Point-group detection, character tables, subgroups, symmetrization,
 asymmetric-unit reconstruction, and symmetry-reduced finite-difference
 displacements. C++20 core with C, Python, and Fortran bindings.
 
-Full API reference: [API](api.md). Quickstarts live in the
+API reference: [Python](api/python.md), [C++](api/cpp.md), [C](api/c.md),
+[Fortran](api/fortran.md). Quickstarts live in the
 [README](https://github.com/rlaplaza-lab/libmolsymm#readme).
 
 ## Install

@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 import molsymm
+
+if TYPE_CHECKING:
+    from molsymm import ZMatrixRow
 
 DATA_DIR = Path(os.environ.get("MOLSYMM_TEST_DATA_DIR", Path(__file__).parent / "data"))
 MANIFEST = DATA_DIR / "manifest.tsv"
@@ -126,6 +131,16 @@ def test_synthetic_water() -> None:
     assert set(a.irrep_names) >= {"A1", "A2", "B1", "B2"}
     d = a.displacements()
     assert d.n == 6
+    g_rec = np.asarray(d.gradient_from_energies(np.zeros(d.n), np.zeros(d.n)), dtype=np.float64)
+    assert g_rec.shape == (9,) and float(np.linalg.norm(g_rec)) < 1e-8
+    zeros = [np.zeros(9) for _ in range(d.n)]
+    assert np.asarray(d.hessian_from_gradients(zeros, zeros), dtype=float).shape == (9, 9)
+
+    rattled = positions.copy()
+    rattled[0, 0] += 0.02
+    rmsd, sym_xyz = molsymm.analyze(numbers, rattled, primary=1e-2).symmetrize()
+    assert rmsd >= 0.0
+    assert molsymm.analyze(numbers, sym_xyz, primary=1e-2).point_group == "C2v"
 
     frag = a.fragmentation()
     assert frag.representatives == [0, 1] and frag.mask == [1, 1, 0]
@@ -154,6 +169,7 @@ def test_synthetic_benzene_subgroups() -> None:
     zs, xyz = _synthetic_benzene()
     a = molsymm.analyze(zs, xyz)
     assert a.point_group == "D6h"
+    assert molsymm.analyze(zs, xyz.T).point_group == "D6h"
     assert "D6" in a.subgroups and "C6v" in a.subgroups and "C2v" in a.subgroups
     for name, order in (("C2", 2), ("C3", 3), ("C6v", 12), ("D6", 12)):
         b = molsymm.analyze(zs, xyz)
@@ -200,7 +216,7 @@ def test_synthetic_s4() -> None:
 
 def test_zmatrix_water() -> None:
     angle = 104.5 * np.pi / 180.0
-    entries = [
+    entries: Sequence[ZMatrixRow] = [
         (8,),
         (1, 1, 0.957),
         (1, 1, 0.957, 2, angle),
@@ -210,6 +226,26 @@ def test_zmatrix_water() -> None:
     a = molsymm.analyze_zmatrix(entries)
     assert a.point_group == "C2v"
     assert a.symmetry_number == 2
+
+
+def test_python_errors() -> None:
+    numbers = [8, 1, 1]
+    positions = np.array([[0.0, 0.0, 0.1173], [0.0, 0.7572, -0.4692], [0.0, -0.7572, -0.4692]])
+    try:
+        molsymm.analyze(numbers, positions[:2])
+        raise AssertionError("expected Error for shape mismatch")
+    except Exception:
+        pass
+    try:
+        molsymm.analyze(numbers, positions).subgroup_assembly("C2v").assemble([])
+        raise AssertionError("expected Error for piece count mismatch")
+    except Exception:
+        pass
+    try:
+        molsymm.zmatrix_to_xyz([(8, 1)])  # type: ignore[list-item]
+        raise AssertionError("expected Error for bad z-matrix row")
+    except Exception:
+        pass
 
 
 def test_symmetrize_water() -> None:
@@ -349,6 +385,7 @@ if __name__ == "__main__":
     test_synthetic_benzene_subgroups()
     test_synthetic_s4()
     test_zmatrix_water()
+    test_python_errors()
     test_symmetrize_water()
     test_symmetrize_benzene_subgroup()
     test_symmetrize_co2()

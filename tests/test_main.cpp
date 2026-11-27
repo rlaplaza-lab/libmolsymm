@@ -501,6 +501,8 @@ void test_displacements_water() {
   for (std::size_t u = 0; u < d.displacements.size(); ++u) {
     expect(!d.displacements[u].irreps.empty(),
            "water displacement " + std::to_string(u) + " has irreps");
+    expect(!d.displacements[u].preserved_subgroup.empty(),
+           "water displacement " + std::to_string(u) + " has preserved_subgroup");
   }
 
   // Planted Hessian: identity on 3N (in original frame)
@@ -868,6 +870,15 @@ void test_high_symmetry_counts() {
   }
   expect(n_id == 1 && n_c5 == 12 && n_c52 == 12 && n_c3 == 20 && n_c2 == 15,
          "C60 Ih proper class sizes");
+
+  for (const auto& [name, order] :
+       {std::pair<const char*, int>{"I", 60}, {"Ih", 120}, {"T", 12}, {"D5d", 20}}) {
+    auto sub = c60;
+    sub.select_subgroup(name);
+    expect(sub.point_group == name && sub.order == order,
+           std::string("C60→") + name + " order " + std::to_string(order));
+    expect(!sub.character_table.irrep_names.empty(), std::string("C60/") + name + " table");
+  }
 }
 
 void test_xyz_corpus() {
@@ -1451,9 +1462,128 @@ void test_symmetrize_data() {
          "water Td subgroup throws");
 }
 
+void test_helpers_and_errors() {
+  expect(std::abs(molsymm::atomic_mass(1) - 1.00794) < 1e-6, "atomic_mass H");
+  expect(molsymm::atomic_mass(118) > 0.0, "atomic_mass Og");
+  expect(molsymm::atomic_mass(0) == 0.0 && molsymm::atomic_mass(119) == 0.0,
+         "atomic_mass out of range");
+
+  const molsymm::Molecule w = water();
+  const molsymm::Vec3 com = molsymm::center_of_mass(w);
+  expect(com.norm() < 0.1, "water COM near origin");
+  expect(molsymm::inertia_tensor(w, com)(2, 2) > 0.0, "water inertia");
+
+  expect(throws_error([] {
+           (void)molsymm::Molecule(std::vector<int>{8, 1}, std::vector<double>{0.0, 0.0, 0.0});
+         }),
+         "xyz length mismatch throws");
+  expect(throws_error([] {
+           Eigen::Matrix<double, 3, Eigen::Dynamic> xyz(3, 2);
+           xyz.setZero();
+           (void)molsymm::Molecule(std::vector<int>{8}, xyz);
+         }),
+         "xyz columns mismatch throws");
+
+  molsymm::Molecule empty;
+  expect(throws_error([&] { (void)molsymm::center_of_mass(empty); }), "empty COM throws");
+  expect(throws_error([&] { (void)molsymm::analyze(empty); }), "empty analyze throws");
+  expect(throws_error([&] { (void)molsymm::symmetrize(empty, "C1"); }), "symmetrize empty throws");
+
+  {
+    molsymm::Molecule m;
+    m.atoms.push_back({0, molsymm::Vec3::Zero(), 0.0});
+    m.resolve_masses();
+    expect(m.atoms[0].mass == 1.0, "unknown Z mass fallback");
+  }
+
+  auto a = molsymm::analyze(water());
+  expect(throws_error([&] { a.select_subgroup("NotAGroup"); }), "unknown subgroup throws");
+  auto d = molsymm::unique_displacements(a, 1e-3);
+  expect(throws_error([&] {
+           (void)d.gradient_from_energies(std::vector<double>{0.0}, std::vector<double>{0.0, 0.0});
+         }),
+         "energy size mismatch throws");
+  expect(throws_error([&] {
+           std::vector<Eigen::VectorXd> gp(d.displacements.size(), Eigen::VectorXd::Zero(3));
+           (void)d.hessian_from_gradients(gp, gp);
+         }),
+         "gradient vector length mismatch throws");
+  expect(throws_error([&] {
+           std::vector<Eigen::VectorXd> gp(1, Eigen::VectorXd::Zero(9));
+           (void)d.hessian_from_gradients(gp, gp);
+         }),
+         "gradient array size mismatch throws");
+  expect(throws_error([&] { (void)molsymm::symmetrize_gradient(a, Eigen::VectorXd::Ones(3)); }),
+         "symmetrize_gradient size mismatch throws");
+  expect(
+      throws_error([&] { (void)molsymm::symmetrize_hessian(a, Eigen::MatrixXd::Identity(3, 3)); }),
+      "symmetrize_hessian size mismatch throws");
+
+  auto frag = molsymm::fragmentation(a);
+  expect(throws_error([&] {
+           (void)molsymm::reconstruct(frag, std::vector<molsymm::Vec3>(1, molsymm::Vec3::Zero()));
+         }),
+         "reconstruct rep count mismatch throws");
+  auto asmbl = molsymm::subgroup_assembly(a, "C2v");
+  expect(throws_error(
+             [&] { (void)molsymm::assemble(asmbl, std::vector<std::vector<molsymm::Vec3>>{}); }),
+         "assemble piece count mismatch throws");
+  expect(throws_error([&] {
+           std::vector<std::vector<molsymm::Vec3>> pieces(asmbl.pieces.size());
+           pieces[0].assign(1, molsymm::Vec3::Zero());
+           (void)molsymm::assemble(asmbl, pieces);
+         }),
+         "assemble piece position mismatch throws");
+
+  {
+    molsymm::Molecule atom;
+    atom.atoms.push_back({10, molsymm::Vec3::Zero(), 20.1797});
+    auto kh = molsymm::analyze(atom);
+    expect(kh.point_group == "Kh" && kh.symmetrize() == 0.0, "Kh symmetrize no-op");
+    expect(molsymm::symmetrize_gradient(kh, Eigen::VectorXd::Ones(3)).norm() < 1e-12,
+           "Kh gradient zeros");
+    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(3, 3);
+    H(0, 0) = 2.0;
+    Eigen::MatrixXd Hs = molsymm::symmetrize_hessian(kh, H);
+    expect(std::abs(Hs(0, 0) - Hs(1, 1)) < 1e-12, "Kh hessian isotropic");
+  }
+
+  {
+    auto lin = molsymm::analyze(co2());
+    expect(lin.point_group == "Dinfh" && lin.symmetrize() < 1e-12, "Dinfh symmetrize");
+    Eigen::VectorXd g = Eigen::VectorXd::Zero(9);
+    g(0) = 0.1;
+    g(5) = 0.2;
+    g(8) = -0.15;
+    Eigen::VectorXd gs = molsymm::symmetrize_gradient(lin, g);
+    expect(std::abs(gs(0)) < 1e-10 && std::abs(gs(5) + gs(8)) < 1e-10, "Dinfh gradient");
+    Eigen::MatrixXd H = Eigen::MatrixXd::Identity(9, 9);
+    H(0, 1) = H(1, 0) = 0.3;
+    Eigen::MatrixXd Hs = molsymm::symmetrize_hessian(lin, H);
+    expect(std::abs(Hs(0, 0) - Hs(1, 1)) < 1e-10, "Dinfh hessian xx/yy");
+    lin.select_subgroup("Cinfv");
+    expect(lin.symmetrize() < 1e-12, "Cinfv symmetrize");
+    Eigen::VectorXd gs2 = molsymm::symmetrize_gradient(lin, Eigen::VectorXd::Ones(9));
+    expect(std::abs(gs2(0)) < 1e-10 && std::abs(gs2(1)) < 1e-10, "Cinfv kills perpendicular");
+    (void)molsymm::symmetrize_hessian(lin, H);
+  }
+
+  {
+    molsymm::Tolerances tol;
+    tol.primary = 5e-2;
+    auto bent = molsymm::analyze(
+        molsymm::Molecule(std::vector<int>{6, 8, 8},
+                          std::vector<double>{0.03, 0.0, 0.0, 0.0, 0.0, 1.16, 0.0, 0.0, -1.16}),
+        tol);
+    expect(bent.point_group == "Dinfh", "bent CO2 Dinfh got " + bent.point_group);
+    expect(bent.symmetrize() > 1e-4, "bent Dinfh symmetrize moves atoms");
+  }
+}
+
 } // namespace
 
 void test_group_math();
+void test_c_api();
 
 int main() {
   try {
@@ -1471,7 +1601,9 @@ int main() {
     test_zmatrix();
     test_fragmentation();
     test_symmetrize_data();
+    test_helpers_and_errors();
     test_group_math();
+    test_c_api();
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;

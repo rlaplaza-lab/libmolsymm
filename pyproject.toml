@@ -55,7 +55,7 @@ MOLSYMM_BUILD_SHARED = "OFF"
 build = "cp311-* cp312-* cp313-*"
 skip = "*-musllinux_* *-win32 *i686*"
 test-requires = ["pytest", "numpy"]
-test-command = "python -m pytest {project}/tests/test_python.py -q"
+test-command = "python -m pytest {project}/tests/test_python.py {project}/tests/test_python_types.py -q"
 test-extras = []
 
 # Native arch per Linux runner (ubuntu-24.04 + ubuntu-24.04-arm).
@@ -81,3 +81,10 @@ known-first-party = ["molsymm"]
 quote-style = "double"
 indent-style = "space"
 line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = ["python"]
+strict = true
+files = ["python/molsymm.pyi", "tests/test_python.py", "tests/test_python_types.py"]
+warn_unused_ignores = true

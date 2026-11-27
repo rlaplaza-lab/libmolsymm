@@ -79,6 +79,12 @@ jobs:
           ruff check tests .github/scripts
           ruff format --check tests .github/scripts
 
+      - name: mypy
+        run: |
+          python3 -m pip install --user mypy numpy
+          export PATH="$HOME/.local/bin:$PATH"
+          mypy
+
   test:
     name: test (${{ matrix.compiler }}, ${{ matrix.build_type }})
     runs-on: ubuntu-24.04
@@ -226,6 +232,7 @@ jobs:
             --filter 'include/' \
             --exclude-unreachable-branches \
             --exclude-throw-branches \
+            --fail-under-line 90 \
             --html-details coverage-html/index.html \
             --json-summary coverage-summary.json \
             --json-summary-pretty \

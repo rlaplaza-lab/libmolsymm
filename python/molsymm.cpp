@@ -2,6 +2,7 @@
 
 #include <nanobind/eigen/dense.h>
 #include <nanobind/nanobind.h>
+#include <nanobind/ndarray.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 
@@ -11,6 +12,9 @@
 namespace nb = nanobind;
 
 namespace {
+
+using NpMatrix = nb::ndarray<nb::numpy, double, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
+using NpVector = nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
 
 constexpr const char* kZEntryHint =
     "z-matrix entry must be (Z), (Z, bond_to, R), (Z, bond_to, R, angle_to, angle), "
@@ -51,12 +55,124 @@ std::vector<molsymm::ZMatrixAtom> zrows_from_python(const nb::sequence& entries)
   return rows;
 }
 
-Eigen::MatrixXd positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
-  Eigen::MatrixXd xyz(static_cast<Eigen::Index>(pos.size()), 3);
-  for (std::size_t i = 0; i < pos.size(); ++i) {
-    xyz.row(static_cast<Eigen::Index>(i)) = pos[i].transpose();
+// Owned C-contiguous buffers; Eigen map/view returns corrupted columns on some builds.
+nb::object cast_move(NpMatrix m) {
+  return m.cast(nb::rv_policy::move);
+}
+nb::object cast_move(NpVector v) {
+  return v.cast(nb::rv_policy::move);
+}
+
+NpMatrix owned_matrix(std::size_t rows, std::size_t cols) {
+  double* data = new double[rows * cols];
+  nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+  return NpMatrix(data, {rows, cols}, owner);
+}
+
+NpVector owned_vector(std::size_t n) {
+  double* data = new double[n];
+  nb::capsule owner(data, [](void* p) noexcept { delete[] static_cast<double*>(p); });
+  return NpVector(data, {n}, owner);
+}
+
+NpMatrix positions_to_rows(const std::vector<molsymm::Vec3>& pos) {
+  const std::size_t n = pos.size();
+  NpMatrix xyz = owned_matrix(n, 3);
+  double* data = xyz.data();
+  for (std::size_t i = 0; i < n; ++i) {
+    data[3 * i + 0] = pos[i].x();
+    data[3 * i + 1] = pos[i].y();
+    data[3 * i + 2] = pos[i].z();
   }
   return xyz;
+}
+
+NpMatrix molecule_to_rows(const molsymm::Molecule& mol) {
+  const std::size_t n = static_cast<std::size_t>(mol.size());
+  NpMatrix xyz = owned_matrix(n, 3);
+  double* data = xyz.data();
+  for (std::size_t i = 0; i < n; ++i) {
+    const molsymm::Vec3& p = mol.atoms[i].position;
+    data[3 * i + 0] = p.x();
+    data[3 * i + 1] = p.y();
+    data[3 * i + 2] = p.z();
+  }
+  return xyz;
+}
+
+nb::list molecules_to_list(const std::vector<molsymm::Molecule>& mols) {
+  nb::list out;
+  for (const auto& mol : mols) {
+    out.append(cast_move(molecule_to_rows(mol)));
+  }
+  return out;
+}
+
+template <typename Derived>
+NpMatrix matrix_to_numpy(const Eigen::MatrixBase<Derived>& m) {
+  const std::size_t rows = static_cast<std::size_t>(m.rows());
+  const std::size_t cols = static_cast<std::size_t>(m.cols());
+  NpMatrix out = owned_matrix(rows, cols);
+  double* data = out.data();
+  for (std::size_t r = 0; r < rows; ++r) {
+    for (std::size_t c = 0; c < cols; ++c) {
+      data[r * cols + c] = m(static_cast<Eigen::Index>(r), static_cast<Eigen::Index>(c));
+    }
+  }
+  return out;
+}
+
+NpVector vector_to_numpy(const Eigen::VectorXd& v) {
+  const std::size_t n = static_cast<std::size_t>(v.size());
+  NpVector out = owned_vector(n);
+  double* data = out.data();
+  for (std::size_t i = 0; i < n; ++i) {
+    data[i] = v(static_cast<Eigen::Index>(i));
+  }
+  return out;
+}
+
+NpMatrix forces_to_rows(const Eigen::VectorXd& forces) {
+  const int n = static_cast<int>(forces.size() / 3);
+  NpMatrix f = owned_matrix(static_cast<std::size_t>(n), 3);
+  double* data = f.data();
+  for (int i = 0; i < n; ++i) {
+    data[static_cast<std::size_t>(3 * i + 0)] = forces(3 * i);
+    data[static_cast<std::size_t>(3 * i + 1)] = forces(3 * i + 1);
+    data[static_cast<std::size_t>(3 * i + 2)] = forces(3 * i + 2);
+  }
+  return f;
+}
+
+std::vector<molsymm::Vec3> parse_positions(const Eigen::MatrixXd& positions, int expected) {
+  Eigen::MatrixXd rows;
+  if (positions.cols() == 3 && positions.rows() == expected) {
+    rows = positions;
+  } else if (positions.rows() == 3 && positions.cols() == expected) {
+    rows = positions.transpose();
+  } else {
+    throw molsymm::Error("positions must be (n,3) or (3,n)");
+  }
+  std::vector<molsymm::Vec3> out(static_cast<std::size_t>(expected));
+  for (int i = 0; i < expected; ++i) {
+    out[static_cast<std::size_t>(i)] = rows.row(i).transpose();
+  }
+  return out;
+}
+
+std::vector<std::vector<std::vector<double>>>
+free_axes_prop(const std::vector<molsymm::FragmentSite>& sites) {
+  std::vector<std::vector<std::vector<double>>> out;
+  out.reserve(sites.size());
+  for (const auto& site : sites) {
+    std::vector<std::vector<double>> axes;
+    axes.reserve(site.free_axes.size());
+    for (const auto& ax : site.free_axes) {
+      axes.push_back({ax.x(), ax.y(), ax.z()});
+    }
+    out.push_back(std::move(axes));
+  }
+  return out;
 }
 
 } // namespace
@@ -79,29 +195,14 @@ NB_MODULE(molsymm, m) {
                      }
                      return z;
                    })
-      .def_prop_ro("frame_xyz",
-                   [](const molsymm::Analysis& a) {
-                     // Nested lists: Eigen↔NumPy casters corrupted columns on some builds.
-                     std::vector<std::vector<double>> xyz;
-                     xyz.reserve(static_cast<std::size_t>(a.molecule.size()));
-                     for (const auto& atom : a.molecule.atoms) {
-                       xyz.push_back({atom.position.x(), atom.position.y(), atom.position.z()});
-                     }
-                     return xyz;
-                   })
+      .def_prop_ro(
+          "frame_xyz",
+          [](const molsymm::Analysis& a) { return cast_move(molecule_to_rows(a.molecule)); })
       .def_prop_ro("operations",
                    [](const molsymm::Analysis& a) {
-                     std::vector<std::vector<std::vector<double>>> mats;
-                     mats.reserve(a.operations.size());
+                     nb::list mats;
                      for (const auto& op : a.operations) {
-                       std::vector<std::vector<double>> m(3, std::vector<double>(3));
-                       for (int r = 0; r < 3; ++r) {
-                         for (int c = 0; c < 3; ++c) {
-                           m[static_cast<std::size_t>(r)][static_cast<std::size_t>(c)] =
-                               op.matrix(r, c);
-                         }
-                       }
-                       mats.push_back(std::move(m));
+                       mats.append(cast_move(matrix_to_numpy(op.matrix)));
                      }
                      return mats;
                    })
@@ -110,13 +211,12 @@ NB_MODULE(molsymm, m) {
       .def("symmetrize",
            [](molsymm::Analysis& a) {
              const double rms = a.symmetrize();
-             const int n = a.molecule.size();
-             Eigen::MatrixXd xyz(n, 3);
-             for (int i = 0; i < n; ++i) {
-               xyz.row(i) = a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(i)].position)
-                                .transpose();
+             std::vector<molsymm::Vec3> pos(static_cast<std::size_t>(a.molecule.size()));
+             for (int i = 0; i < a.molecule.size(); ++i) {
+               pos[static_cast<std::size_t>(i)] =
+                   a.frame_to_input(a.molecule.atoms[static_cast<std::size_t>(i)].position);
              }
-             return nb::make_tuple(rms, xyz);
+             return nb::make_tuple(rms, cast_move(positions_to_rows(pos)));
            })
       .def("select_subgroup", &molsymm::Analysis::select_subgroup)
       .def(
@@ -133,19 +233,6 @@ NB_MODULE(molsymm, m) {
           },
           nb::arg("name"));
 
-  auto mols_to_xyz = [](const std::vector<molsymm::Molecule>& mols) {
-    std::vector<Eigen::MatrixXd> out;
-    out.reserve(mols.size());
-    for (const auto& mol : mols) {
-      Eigen::MatrixXd xyz(mol.size(), 3);
-      for (int i = 0; i < mol.size(); ++i) {
-        xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
-      }
-      out.push_back(std::move(xyz));
-    }
-    return out;
-  };
-
   nb::class_<molsymm::DisplacementSet>(m, "DisplacementSet")
       .def_ro("step", &molsymm::DisplacementSet::step)
       .def_prop_ro("n",
@@ -153,56 +240,21 @@ NB_MODULE(molsymm, m) {
                      return static_cast<int>(d.displacements.size());
                    })
       .def_prop_ro("plus",
-                   [mols_to_xyz](const molsymm::DisplacementSet& d) { return mols_to_xyz(d.plus); })
-      .def_prop_ro(
-          "minus",
-          [mols_to_xyz](const molsymm::DisplacementSet& d) { return mols_to_xyz(d.minus); })
+                   [](const molsymm::DisplacementSet& d) { return molecules_to_list(d.plus); })
+      .def_prop_ro("minus",
+                   [](const molsymm::DisplacementSet& d) { return molecules_to_list(d.minus); })
       .def("gradient_from_energies",
            [](const molsymm::DisplacementSet& d,
               const std::vector<double>& ep,
-              const std::vector<double>& em) { return d.gradient_from_energies(ep, em); })
+              const std::vector<double>& em) {
+             return cast_move(vector_to_numpy(d.gradient_from_energies(ep, em)));
+           })
       .def("hessian_from_gradients",
            [](const molsymm::DisplacementSet& d,
               const std::vector<Eigen::VectorXd>& gp,
-              const std::vector<Eigen::VectorXd>& gm) { return d.hessian_from_gradients(gp, gm); });
-
-  auto mol_to_xyz = [](const molsymm::Molecule& mol) {
-    Eigen::MatrixXd xyz(mol.size(), 3);
-    for (int i = 0; i < mol.size(); ++i) {
-      xyz.row(i) = mol.atoms[static_cast<std::size_t>(i)].position.transpose();
-    }
-    return xyz;
-  };
-
-  auto parse_positions = [](const Eigen::MatrixXd& positions, int expected) {
-    Eigen::MatrixXd rows;
-    if (positions.cols() == 3 && positions.rows() == expected) {
-      rows = positions;
-    } else if (positions.rows() == 3 && positions.cols() == expected) {
-      rows = positions.transpose();
-    } else {
-      throw molsymm::Error("positions must be (n,3) or (3,n)");
-    }
-    std::vector<molsymm::Vec3> out(static_cast<std::size_t>(expected));
-    for (int i = 0; i < expected; ++i) {
-      out[static_cast<std::size_t>(i)] = rows.row(i).transpose();
-    }
-    return out;
-  };
-
-  auto free_axes_prop = [](const std::vector<molsymm::FragmentSite>& sites) {
-    std::vector<std::vector<std::vector<double>>> out;
-    out.reserve(sites.size());
-    for (const auto& site : sites) {
-      std::vector<std::vector<double>> axes;
-      axes.reserve(site.free_axes.size());
-      for (const auto& ax : site.free_axes) {
-        axes.push_back({ax.x(), ax.y(), ax.z()});
-      }
-      out.push_back(std::move(axes));
-    }
-    return out;
-  };
+              const std::vector<Eigen::VectorXd>& gm) {
+             return cast_move(matrix_to_numpy(d.hessian_from_gradients(gp, gm)));
+           });
 
   nb::class_<molsymm::Fragmentation>(m, "Fragmentation")
       .def_ro("representatives", &molsymm::Fragmentation::representatives)
@@ -219,15 +271,13 @@ NB_MODULE(molsymm, m) {
                    [](const molsymm::Fragmentation& f) {
                      return std::vector<int>(f.mask.begin(), f.mask.end());
                    })
-      .def_prop_ro(
-          "free_axes",
-          [free_axes_prop](const molsymm::Fragmentation& f) { return free_axes_prop(f.sites); })
+      .def_prop_ro("free_axes",
+                   [](const molsymm::Fragmentation& f) { return free_axes_prop(f.sites); })
       .def(
           "reconstruct",
-          [mol_to_xyz, parse_positions](const molsymm::Fragmentation& f,
-                                        const Eigen::MatrixXd& positions) {
-            return mol_to_xyz(molsymm::reconstruct(
-                f, parse_positions(positions, static_cast<int>(f.representatives.size()))));
+          [](const molsymm::Fragmentation& f, const Eigen::MatrixXd& positions) {
+            return cast_move(molecule_to_rows(molsymm::reconstruct(
+                f, parse_positions(positions, static_cast<int>(f.representatives.size())))));
           },
           nb::arg("positions"));
 
@@ -242,13 +292,11 @@ NB_MODULE(molsymm, m) {
                      }
                      return out;
                    })
-      .def_prop_ro(
-          "free_axes",
-          [free_axes_prop](const molsymm::SubgroupAssembly& a) { return free_axes_prop(a.sites); })
+      .def_prop_ro("free_axes",
+                   [](const molsymm::SubgroupAssembly& a) { return free_axes_prop(a.sites); })
       .def(
           "assemble",
-          [mol_to_xyz, parse_positions](const molsymm::SubgroupAssembly& a,
-                                        const nb::sequence& pieces) {
+          [](const molsymm::SubgroupAssembly& a, const nb::sequence& pieces) {
             if (static_cast<int>(nb::len(pieces)) != static_cast<int>(a.pieces.size())) {
               throw molsymm::Error("piece count mismatch");
             }
@@ -257,7 +305,7 @@ NB_MODULE(molsymm, m) {
               piece_pos[p] = parse_positions(nb::cast<Eigen::MatrixXd>(pieces[p]),
                                              static_cast<int>(a.pieces[p].atoms.size()));
             }
-            return mol_to_xyz(molsymm::assemble(a, piece_pos));
+            return cast_move(molecule_to_rows(molsymm::assemble(a, piece_pos)));
           },
           nb::arg("pieces"));
 
@@ -289,42 +337,21 @@ NB_MODULE(molsymm, m) {
 
   nb::class_<molsymm::Symmetrized>(m, "Symmetrized")
       .def_ro("rmsd", &molsymm::Symmetrized::rmsd)
-      .def_prop_ro("positions",
-                   [](const molsymm::Symmetrized& s) {
-                     // Nested lists: Eigen↔NumPy casters corrupted columns on some builds.
-                     std::vector<std::vector<double>> xyz;
-                     xyz.reserve(s.positions.size());
-                     for (const auto& p : s.positions) {
-                       xyz.push_back({p.x(), p.y(), p.z()});
-                     }
-                     return xyz;
-                   })
+      .def_prop_ro(
+          "positions",
+          [](const molsymm::Symmetrized& s) { return cast_move(positions_to_rows(s.positions)); })
       .def_prop_ro("forces",
                    [](const molsymm::Symmetrized& s) -> nb::object {
                      if (s.forces.size() == 0) {
                        return nb::none();
                      }
-                     const int n = static_cast<int>(s.forces.size() / 3);
-                     std::vector<std::vector<double>> f;
-                     f.reserve(static_cast<std::size_t>(n));
-                     for (int i = 0; i < n; ++i) {
-                       f.push_back({s.forces(3 * i), s.forces(3 * i + 1), s.forces(3 * i + 2)});
-                     }
-                     return nb::cast(f);
+                     return cast_move(forces_to_rows(s.forces));
                    })
       .def_prop_ro("hessian", [](const molsymm::Symmetrized& s) -> nb::object {
         if (s.hessian.rows() == 0 || s.hessian.cols() == 0) {
           return nb::none();
         }
-        const int n3 = static_cast<int>(s.hessian.rows());
-        std::vector<std::vector<double>> H(static_cast<std::size_t>(n3),
-                                           std::vector<double>(static_cast<std::size_t>(n3)));
-        for (int i = 0; i < n3; ++i) {
-          for (int j = 0; j < n3; ++j) {
-            H[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] = s.hessian(i, j);
-          }
-        }
-        return nb::cast(H);
+        return cast_move(matrix_to_numpy(s.hessian));
       });
 
   m.def(
@@ -407,7 +434,7 @@ NB_MODULE(molsymm, m) {
   m.def(
       "zmatrix_to_xyz",
       [](const nb::sequence& entries) {
-        return positions_to_rows(molsymm::zmatrix_positions(zrows_from_python(entries)));
+        return cast_move(positions_to_rows(molsymm::zmatrix_positions(zrows_from_python(entries))));
       },
       nb::arg("entries"));
 

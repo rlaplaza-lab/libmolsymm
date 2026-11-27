@@ -283,8 +283,13 @@ void test_cubic_subgroups() {
   {
     auto a = molsymm::analyze(methane());
     expect(a.point_group == "Td", "methane Td");
-    for (const auto& [name, order] :
-         {std::pair<const char*, int>{"C2", 2}, {"S4", 4}, {"C2v", 4}, {"D2", 4}, {"D2d", 8}}) {
+    for (const auto& [name, order] : {std::pair<const char*, int>{"C2", 2},
+                                      {"S4", 4},
+                                      {"C2v", 4},
+                                      {"D2", 4},
+                                      {"D2d", 8},
+                                      {"T", 12},
+                                      {"Td", 24}}) {
       auto sub = a;
       sub.select_subgroup(name);
       expect(sub.point_group == name && sub.order == order,
@@ -295,13 +300,25 @@ void test_cubic_subgroups() {
   {
     auto a = molsymm::analyze(sf6());
     expect(a.point_group == "Oh", "SF6 Oh");
-    auto t = a;
-    t.select_subgroup("T");
-    expect(t.point_group == "T" && t.order == 12, "SF6→T order 12");
-    auto d2d = a;
-    d2d.select_subgroup("D2d");
-    expect(d2d.point_group == "D2d" && d2d.order == 8, "SF6→D2d order 8");
-    expect(!d2d.character_table.irrep_names.empty(), "SF6→D2d has character table");
+    for (const auto& [name, order] : {std::pair<const char*, int>{"T", 12},
+                                      {"O", 24},
+                                      {"Oh", 48},
+                                      {"D2d", 8},
+                                      {"D4h", 16},
+                                      {"D3d", 12}}) {
+      auto sub = a;
+      sub.select_subgroup(name);
+      expect(sub.point_group == name && sub.order == order,
+             std::string("SF6→") + name + " order " + std::to_string(order));
+      expect(!sub.character_table.irrep_names.empty(), std::string(name) + " has character table");
+    }
+    expect(has_subgroup(a, "Th"), "SF6 lists Th");
+    try {
+      auto sub = a;
+      sub.select_subgroup("Th");
+      expect(false, "SF6→Th should throw");
+    } catch (const molsymm::Error&) {
+    }
   }
 }
 

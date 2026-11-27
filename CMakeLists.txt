@@ -135,7 +135,7 @@ endif()
 
 if(MOLSYMM_BUILD_TESTS)
   enable_testing()
-  add_executable(molsymm_tests tests/test_main.cpp tests/test_group_math.cpp)
+  add_executable(molsymm_tests tests/test_main.cpp tests/test_group_math.cpp tests/test_c_api.cpp)
   target_link_libraries(molsymm_tests PRIVATE molsymm)
   molsymm_set_warnings(molsymm_tests)
   target_compile_definitions(molsymm_tests PRIVATE
@@ -186,17 +186,29 @@ if(MOLSYMM_BUILD_PYTHON)
       OUTPUT_STRIP_TRAILING_WHITESPACE
     )
     get_filename_component(_molsymm_libstdcxx_real "${_molsymm_libstdcxx}" REALPATH)
+    set(_molsymm_py_env
+      "PYTHONPATH=$<TARGET_FILE_DIR:molsymm_py>;MOLSYMM_TEST_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/data;LD_PRELOAD=${_molsymm_libstdcxx_real}"
+    )
     add_test(
       NAME molsymm_python_test
       COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_python.py
     )
     set_tests_properties(molsymm_python_test PROPERTIES
-      ENVIRONMENT "PYTHONPATH=$<TARGET_FILE_DIR:molsymm_py>;MOLSYMM_TEST_DATA_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/data;LD_PRELOAD=${_molsymm_libstdcxx_real}"
+      ENVIRONMENT "${_molsymm_py_env}"
       TIMEOUT 180
+    )
+    add_test(
+      NAME molsymm_python_types_test
+      COMMAND ${Python_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_python_types.py
+    )
+    set_tests_properties(molsymm_python_types_test PROPERTIES
+      ENVIRONMENT "${_molsymm_py_env}"
+      TIMEOUT 60
     )
   endif()
   if(DEFINED SKBUILD)
     install(TARGETS molsymm_py LIBRARY DESTINATION . RUNTIME DESTINATION . ARCHIVE DESTINATION .)
+    install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/python/molsymm.pyi DESTINATION .)
   endif()
 endif()
 
