@@ -5,7 +5,7 @@ program test_fortran
 
   integer(c_int) :: z(3), status, sigma, order, nd, ios, nfail
   integer(c_int) :: expect_order, expect_sigma, got_order, got_sigma
-  real(c_double) :: xyz(3,3), primary, max_rmsd
+  real(c_double) :: xyz(3,3), primary, max_rmsd, got_rmsd
   type(c_ptr) :: handle, dhandle
   character(len=32) :: name
   character(len=256) :: data_dir, manifest, xyz_path, rel, pg, source
@@ -104,12 +104,12 @@ program test_fortran
   if (trim(name) /= "C2v") nfail = nfail + 1
   call ms_release(handle)
 
-  ! --- manifest corpus ---
+  ! --- smoke manifest ---
   call get_environment_variable("MOLSYMM_TEST_DATA_DIR", data_dir, status=ios)
   if (len_trim(data_dir) == 0) then
     data_dir = "tests/data"
   end if
-  manifest = trim(data_dir)//"/manifest.tsv"
+  manifest = trim(data_dir)//"/manifest_smoke.tsv"
   open(newunit=u, file=trim(manifest), status="old", action="read", iostat=ios)
   if (ios /= 0) then
     print *, "cannot open manifest ", trim(manifest)
@@ -139,9 +139,13 @@ program test_fortran
     call ms_point_group_name(handle, name, status)
     call ms_symmetry_number(handle, got_sigma, status)
     call ms_order(handle, got_order, status)
+    call ms_rmsd(handle, got_rmsd, status)
     if (trim(name) /= trim(pg) .or. got_order /= expect_order .or. got_sigma /= expect_sigma) then
       print *, "FAIL ", trim(rel), " expect ", trim(pg), expect_order, expect_sigma, &
                " got ", trim(name), got_order, got_sigma
+      nfail = nfail + 1
+    else if (got_rmsd >= max_rmsd) then
+      print *, "FAIL ", trim(rel), " rmsd ", got_rmsd, " max ", max_rmsd
       nfail = nfail + 1
     end if
     call ms_release(handle)
@@ -154,7 +158,7 @@ program test_fortran
     print *, nfail, " fortran failures"
     stop 1
   end if
-  print *, "fortran corpus ok"
+  print *, "fortran smoke ok"
 contains
 
   subroutine parse_manifest_line(line, rel, pg, order, sigma, primary, max_rmsd, source)

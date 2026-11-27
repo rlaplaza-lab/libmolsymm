@@ -39,6 +39,17 @@ inline bool parallel_axis(const Vec3& a, const Vec3& b, double angle_tol) {
   return c >= std::cos(angle_tol);
 }
 
+inline void canonicalize_direction(Vec3& d) {
+  for (int k = 0; k < 3; ++k) {
+    if (std::abs(d(k)) > 1e-10) {
+      if (d(k) < 0) {
+        d = -d;
+      }
+      break;
+    }
+  }
+}
+
 inline Mat3 rotation_matrix(const Vec3& axis, double angle) {
   Vec3 u = axis.normalized();
   const double c = std::cos(angle);

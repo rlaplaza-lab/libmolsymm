@@ -26,17 +26,6 @@ std::vector<const Operation*> stabilizer(const Analysis& analysis, int atom) {
   return stab;
 }
 
-void canonicalize(Vec3& d) {
-  for (int k = 0; k < 3; ++k) {
-    if (std::abs(d(k)) > 1e-10) {
-      if (d(k) < 0) {
-        d = -d;
-      }
-      break;
-    }
-  }
-}
-
 /// One representative direction per site-symmetry invariant subspace of R^3.
 std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
   const Vec3 pos = analysis.molecule.atoms[static_cast<std::size_t>(atom)].position;
@@ -102,7 +91,7 @@ std::vector<Vec3> site_unique_directions(const Analysis& analysis, int atom) {
     }
 
     Vec3 rep = subspace.front();
-    canonicalize(rep);
+    detail::canonicalize_direction(rep);
     unique.push_back(rep);
     for (const Vec3& b : subspace) {
       append_ortho(used_basis, b);

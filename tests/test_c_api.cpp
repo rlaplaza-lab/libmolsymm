@@ -107,6 +107,7 @@ void test_c_api_water() {
   expect(molsymm_point_group(a, pg, static_cast<int>(sizeof(pg))) == 0 &&
              std::strcmp(pg, "C2v") == 0,
          "water C2v");
+  expect(molsymm_point_group(a, pg, 0) == -1, "point_group buflen=0");
   expect(molsymm_symmetry_number(a, &sigma) == 0 && sigma == 2, "water sigma");
   expect(molsymm_order(a, &order) == 0 && order == 4, "water order");
   expect(molsymm_rmsd(a, &rmsd) == 0 && rmsd < 1e-6, "water rmsd");
@@ -118,8 +119,21 @@ void test_c_api_water() {
   double mat9[9] = {};
   char buf[32] = {};
   expect(molsymm_operation_matrix(a, 0, mat9) == 0, "operation_matrix");
+  {
+    const double det = mat9[0] * (mat9[4] * mat9[8] - mat9[5] * mat9[7]) -
+                       mat9[1] * (mat9[3] * mat9[8] - mat9[5] * mat9[6]) +
+                       mat9[2] * (mat9[3] * mat9[7] - mat9[4] * mat9[6]);
+    expect(std::abs(std::abs(det) - 1.0) < 1e-8, "operation_matrix det ±1");
+  }
   expect(molsymm_operation_matrix(a, 99, mat9) == -1, "operation_matrix OOR");
-  expect(molsymm_irrep_name(a, 0, buf, static_cast<int>(sizeof(buf))) == 0, "irrep_name");
+  {
+    const char* want[] = {"A1", "A2", "B1", "B2"};
+    for (int i = 0; i < 4; ++i) {
+      expect(molsymm_irrep_name(a, i, buf, static_cast<int>(sizeof(buf))) == 0 &&
+                 std::strcmp(buf, want[i]) == 0,
+             std::string("irrep_name ") + want[i]);
+    }
+  }
   expect(molsymm_irrep_name(a, 99, buf, static_cast<int>(sizeof(buf))) == -1, "irrep_name OOR");
   expect(molsymm_subgroup_name(a, 0, buf, static_cast<int>(sizeof(buf))) == 0, "subgroup_name");
   expect(molsymm_subgroup_name(a, 99, buf, static_cast<int>(sizeof(buf))) == -1,
@@ -135,9 +149,13 @@ void test_c_api_water() {
     double dir[3] = {};
     double geom[9] = {};
     expect(molsymm_n_displacements(d, &nd) == 0 && nd == 6, "n_displacements");
-    expect(molsymm_displacement_atom(d, 0, &atom) == 0, "displacement_atom");
+    expect(molsymm_displacement_atom(d, 0, &atom) == 0 && atom >= 0 && atom < 3,
+           "displacement_atom in range");
     expect(molsymm_displacement_direction(d, 0, dir) == 0, "displacement_direction");
-    expect(molsymm_displacement_preserved(d, 0, buf, static_cast<int>(sizeof(buf))) == 0,
+    expect(std::abs(std::hypot(dir[0], dir[1], dir[2]) - 1.0) < 1e-8,
+           "displacement_direction unit");
+    expect(molsymm_displacement_preserved(d, 0, buf, static_cast<int>(sizeof(buf))) == 0 &&
+               buf[0] != '\0',
            "displacement_preserved");
     expect(molsymm_displacement_geometry(d, 0, 1, geom) == 0, "displacement_geometry plus");
     expect(molsymm_displacement_geometry(d, 0, 0, geom) == 0, "displacement_geometry minus");
@@ -147,10 +165,17 @@ void test_c_api_water() {
            "displacement_preserved OOR");
     expect(molsymm_displacement_geometry(d, 99, 1, geom) == -1, "displacement_geometry OOR");
 
-    std::vector<double> e(static_cast<std::size_t>(nd), 0.0);
+    std::vector<double> ep(static_cast<std::size_t>(nd), 0.0);
+    std::vector<double> em(static_cast<std::size_t>(nd), 0.0);
+    ep[0] = 2e-6;
     std::vector<double> grad(9, 0.0);
-    expect(molsymm_gradient_from_energies(d, e.data(), e.data(), grad.data()) == 0,
+    expect(molsymm_gradient_from_energies(d, ep.data(), em.data(), grad.data()) == 0,
            "gradient_from_energies");
+    double gabs = 0.0;
+    for (double v : grad) {
+      gabs += std::abs(v);
+    }
+    expect(gabs > 0.0, "gradient_from_energies non-zero");
     std::vector<double> g(static_cast<std::size_t>(nd * 9), 0.0);
     std::vector<double> hess(81, 0.0);
     expect(molsymm_hessian_from_gradients(d, g.data(), g.data(), hess.data()) == 0,
@@ -244,6 +269,15 @@ void test_c_api_symmetrize_and_zmatrix() {
           kWaterZ, rattled, 3, "C2v", 1e-2, nullptr, nullptr, nullptr, xyz_sym, nullptr, nullptr) ==
           0,
       "symmetrize_data geometry");
+  expect(
+      molsymm_symmetrize_data(
+          kWaterZ, rattled, 3, "C2v", 1e-2, forces, nullptr, &rmsd, xyz_sym, forces_out, nullptr) ==
+          0,
+      "symmetrize_data forces only");
+  expect(molsymm_symmetrize_data(
+             kWaterZ, rattled, 3, "C2v", 1e-2, nullptr, hess, &rmsd, xyz_sym, nullptr, hess_out) ==
+             0,
+         "symmetrize_data hessian only");
   expect(
       molsymm_symmetrize_data(
           kWaterZ, rattled, 3, "Td", 1e-2, nullptr, nullptr, nullptr, xyz_sym, nullptr, nullptr) ==

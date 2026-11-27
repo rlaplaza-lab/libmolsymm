@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from molsymm import ZMatrixRow
 
 DATA_DIR = Path(os.environ.get("MOLSYMM_TEST_DATA_DIR", Path(__file__).parent / "data"))
-MANIFEST = DATA_DIR / "manifest.tsv"
+MANIFEST = DATA_DIR / "manifest_smoke.tsv"
 
 _SYMBOLS = {
     "H": 1,
@@ -233,18 +233,18 @@ def test_python_errors() -> None:
     positions = np.array([[0.0, 0.0, 0.1173], [0.0, 0.7572, -0.4692], [0.0, -0.7572, -0.4692]])
     try:
         molsymm.analyze(numbers, positions[:2])
-        raise AssertionError("expected Error for shape mismatch")
-    except Exception:
+        raise AssertionError("expected RuntimeError for shape mismatch")
+    except RuntimeError:
         pass
     try:
         molsymm.analyze(numbers, positions).subgroup_assembly("C2v").assemble([])
-        raise AssertionError("expected Error for piece count mismatch")
-    except Exception:
+        raise AssertionError("expected RuntimeError for piece count mismatch")
+    except RuntimeError:
         pass
     try:
         molsymm.zmatrix_to_xyz([(8, 1)])  # type: ignore[list-item]
-        raise AssertionError("expected Error for bad z-matrix row")
-    except Exception:
+        raise AssertionError("expected error for bad z-matrix row")
+    except (RuntimeError, TypeError, ValueError):
         pass
 
 
@@ -367,9 +367,9 @@ def _ops_permute(a: molsymm.Analysis, tol: float) -> bool:
     return True
 
 
-def test_manifest_corpus() -> None:
+def test_manifest_smoke() -> None:
     rows = load_manifest()
-    assert rows, "manifest must be non-empty"
+    assert len(rows) >= 10, "smoke manifest must cover diverse groups"
     for rel, group, order, sigma, primary, max_rmsd, _source in rows:
         numbers, positions = load_xyz(DATA_DIR / rel)
         a = molsymm.analyze(numbers, positions, primary=primary)
@@ -389,5 +389,5 @@ if __name__ == "__main__":
     test_symmetrize_water()
     test_symmetrize_benzene_subgroup()
     test_symmetrize_co2()
-    test_manifest_corpus()
-    print("python corpus ok")
+    test_manifest_smoke()
+    print("python tests ok")

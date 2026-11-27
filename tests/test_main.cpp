@@ -1,5 +1,7 @@
 #include "molsymm/molsymm.hpp"
 
+#include "fixtures.hpp"
+
 #include <Eigen/Geometry>
 
 #include <algorithm>
@@ -21,7 +23,16 @@
 
 namespace {
 
-constexpr double kPi = 3.14159265358979323846;
+using molsymm::test::allene;
+using molsymm::test::ammonia;
+using molsymm::test::benzene;
+using molsymm::test::co;
+using molsymm::test::co2;
+using molsymm::test::kPi;
+using molsymm::test::methane;
+using molsymm::test::sf6;
+using molsymm::test::water;
+
 int g_failed = 0;
 int g_passed = 0;
 
@@ -87,113 +98,6 @@ molsymm::Molecule load_xyz(const std::string& path) {
 
 bool has_subgroup(const molsymm::Analysis& a, const std::string& name) {
   return std::find(a.subgroups.begin(), a.subgroups.end(), name) != a.subgroups.end();
-}
-
-molsymm::Molecule water() {
-  // O-H2, C2v
-  std::vector<int> z{8, 1, 1};
-  std::vector<double> xyz{
-      0.000000,
-      0.000000,
-      0.117300,
-      -0.000000,
-      0.757200,
-      -0.469200,
-      -0.000000,
-      -0.757200,
-      -0.469200,
-  };
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule ammonia() {
-  std::vector<int> z{7, 1, 1, 1};
-  std::vector<double> xyz{
-      0.000000,
-      0.000000,
-      0.000000,
-      0.000000,
-      0.943863,
-      -0.382029,
-      0.817408,
-      -0.471931,
-      -0.382029,
-      -0.817408,
-      -0.471931,
-      -0.382029,
-  };
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule methane() {
-  const double a = 0.627;
-  std::vector<int> z{6, 1, 1, 1, 1};
-  std::vector<double> xyz{
-      0,
-      0,
-      0,
-      a,
-      a,
-      a,
-      a,
-      -a,
-      -a,
-      -a,
-      a,
-      -a,
-      -a,
-      -a,
-      a,
-  };
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule benzene() {
-  std::vector<int> z(12);
-  std::vector<double> xyz(36);
-  for (int i = 0; i < 6; ++i) {
-    const double ang = 2.0 * kPi * i / 6.0;
-    z[i] = 6;
-    xyz[3 * i] = 1.39 * std::cos(ang);
-    xyz[3 * i + 1] = 1.39 * std::sin(ang);
-    xyz[3 * i + 2] = 0.0;
-    z[6 + i] = 1;
-    xyz[3 * (6 + i)] = 2.47 * std::cos(ang);
-    xyz[3 * (6 + i) + 1] = 2.47 * std::sin(ang);
-    xyz[3 * (6 + i) + 2] = 0.0;
-  }
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule allene() {
-  // D2d
-  std::vector<int> z{6, 6, 6, 1, 1, 1, 1};
-  std::vector<double> xyz{
-      0,    0,     0, 0,    0, 1.31, 0,     0, -1.31, 0.95,  0,
-      1.89, -0.95, 0, 1.89, 0, 0.95, -1.89, 0, -0.95, -1.89,
-  };
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule sf6() {
-  std::vector<int> z{16, 9, 9, 9, 9, 9, 9};
-  const double r = 1.56;
-  std::vector<double> xyz{
-      0, 0, 0, r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r,
-  };
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule co2() {
-  std::vector<int> z{6, 8, 8};
-  std::vector<double> xyz{0, 0, 0, 0, 0, 1.16, 0, 0, -1.16};
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule co() {
-  std::vector<int> z{6, 8};
-  std::vector<double> xyz{0, 0, 0, 0, 0, 1.13};
-  return molsymm::Molecule(z, xyz);
 }
 
 void test_point_groups() {
@@ -445,6 +349,10 @@ void test_subgroups_and_table() {
            "D3 from D3h");
     dn.select_subgroup("C3");
     expect(dn.point_group == "C3" && dn.order == 3, "D3→C3 order 3");
+    auto c3h = d3h;
+    c3h.select_subgroup("C3h");
+    expect(c3h.point_group == "C3h" && c3h.order == 6, "D3h→C3h order 6");
+    expect_character_table_consistent(c3h, "cyclopropane/C3h");
   }
 
   auto m = molsymm::analyze(methane());
@@ -455,27 +363,6 @@ void test_subgroups_and_table() {
   {
     auto w = molsymm::analyze(water());
     expect(operations_form_finite_group(w), "water closed group");
-    const auto& ct = w.character_table;
-    int i_b1 = -1;
-    int i_b2 = -1;
-    for (std::size_t i = 0; i < ct.irrep_names.size(); ++i) {
-      if (ct.irrep_names[i] == "B1") {
-        i_b1 = static_cast<int>(i);
-      }
-      if (ct.irrep_names[i] == "B2") {
-        i_b2 = static_cast<int>(i);
-      }
-    }
-    expect(i_b1 >= 0 && i_b2 >= 0, "water has B1 and B2");
-    bool split = false;
-    for (std::size_t c = 0; c < ct.characters[static_cast<std::size_t>(i_b1)].size(); ++c) {
-      if (std::abs(ct.characters[static_cast<std::size_t>(i_b1)][c] -
-                   ct.characters[static_cast<std::size_t>(i_b2)][c]) > 1e-8) {
-        split = true;
-        break;
-      }
-    }
-    expect(split, "water B1 and B2 differ");
   }
 
   {
@@ -825,9 +712,6 @@ void check_manifest_row(const ManifestRow& c, const std::string& data_root) {
   expect(operations_permute_atoms(a, c.primary), c.rel_path + " ops permute atoms");
   if (!a.infinite) {
     expect_character_table_consistent(a, c.rel_path);
-    auto d = molsymm::unique_displacements(a, 1e-3);
-    const int nd = static_cast<int>(d.displacements.size());
-    expect(nd >= 1 && nd <= 3 * a.original.size(), c.rel_path + " unique disp in [1,3N]");
   }
 }
 
@@ -871,13 +755,71 @@ void test_high_symmetry_counts() {
   expect(n_id == 1 && n_c5 == 12 && n_c52 == 12 && n_c3 == 20 && n_c2 == 15,
          "C60 Ih proper class sizes");
 
-  for (const auto& [name, order] :
-       {std::pair<const char*, int>{"I", 60}, {"Ih", 120}, {"T", 12}, {"D5d", 20}}) {
+  for (const auto& [name, order] : {std::pair<const char*, int>{"C2", 2},
+                                    {"C3", 3},
+                                    {"C5", 5},
+                                    {"D2", 4},
+                                    {"D3", 6},
+                                    {"D5", 10},
+                                    {"T", 12},
+                                    {"I", 60},
+                                    {"Ci", 2},
+                                    {"Cs", 2},
+                                    {"C2h", 4},
+                                    {"C3v", 6},
+                                    {"C5v", 10},
+                                    {"D2h", 8},
+                                    {"D3d", 12},
+                                    {"D5d", 20},
+                                    {"Ih", 120}}) {
     auto sub = c60;
     sub.select_subgroup(name);
     expect(sub.point_group == name && sub.order == order,
            std::string("C60→") + name + " order " + std::to_string(order));
-    expect(!sub.character_table.irrep_names.empty(), std::string("C60/") + name + " table");
+    expect_character_table_consistent(sub, std::string("C60/") + name);
+  }
+
+  {
+    molsymm::Tolerances d5;
+    d5.primary = 1e-4;
+    auto d5h =
+        molsymm::analyze(load_xyz(root + "/iqmol/Molecules/Host_Guest/Cucurbit-5-uril.xyz"), d5);
+    expect(d5h.point_group == "D5h", "cucurbit-5 D5h got " + d5h.point_group);
+    for (const auto& [name, order] :
+         {std::pair<const char*, int>{"C5", 5}, {"C5v", 10}, {"C5h", 10}, {"D5", 10}}) {
+      auto sub = d5h;
+      sub.select_subgroup(name);
+      expect(sub.point_group == name && sub.order == order,
+             std::string("D5h→") + name + " order " + std::to_string(order));
+      expect_character_table_consistent(sub, std::string("D5h/") + name);
+    }
+  }
+  {
+    molsymm::Tolerances d7;
+    d7.primary = 1e-4;
+    auto d7h =
+        molsymm::analyze(load_xyz(root + "/iqmol/Molecules/Host_Guest/Cucurbit-7-uril.xyz"), d7);
+    expect(d7h.point_group == "D7h", "cucurbit-7 D7h got " + d7h.point_group);
+    for (const auto& [name, order] :
+         {std::pair<const char*, int>{"C7", 7}, {"C7v", 14}, {"C7h", 14}}) {
+      auto sub = d7h;
+      sub.select_subgroup(name);
+      expect(sub.point_group == name && sub.order == order,
+             std::string("D7h→") + name + " order " + std::to_string(order));
+      expect_character_table_consistent(sub, std::string("D7h/") + name);
+    }
+  }
+
+  {
+    auto bz = molsymm::analyze(benzene());
+    for (const auto& [name, order] :
+         {std::pair<const char*, int>{"C6h", 12}, {"C6v", 12}, {"C6", 6}}) {
+      auto sub = bz;
+      sub.select_subgroup(name);
+      expect(sub.point_group == name && sub.order == order,
+             std::string("benzene→") + name + " order " + std::to_string(order));
+      expect_character_table_consistent(sub, std::string("benzene/") + name);
+    }
   }
 }
 
@@ -1146,6 +1088,30 @@ void test_zmatrix() {
            (void)molsymm::zmatrix_positions(rows);
          }),
          "zero-length bond reference throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows;
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "empty z-matrix throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 1.0, 0.0, 0.0},
+               {1, 1, 1, 0, 1.0, 0.5 * kPi, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "angle_to == bond_to throws");
+  expect(throws_error([] {
+           const std::vector<ZMatrixAtom> rows = {
+               {6, 0, 0, 0, 0.0, 0.0, 0.0},
+               {1, 1, 0, 0, 1.0, 0.0, 0.0},
+               {1, 1, 2, 0, 1.0, 0.5 * kPi, 0.0},
+               {1, 1, 2, 1, 1.0, 0.5 * kPi, 0.0},
+           };
+           (void)molsymm::zmatrix_positions(rows);
+         }),
+         "dihedral_to == bond_to throws");
 }
 
 bool geometry_matches_ops(const molsymm::Analysis& a, const molsymm::Molecule& mol, double tol) {
@@ -1488,6 +1454,12 @@ void test_helpers_and_errors() {
   expect(throws_error([&] { (void)molsymm::center_of_mass(empty); }), "empty COM throws");
   expect(throws_error([&] { (void)molsymm::analyze(empty); }), "empty analyze throws");
   expect(throws_error([&] { (void)molsymm::symmetrize(empty, "C1"); }), "symmetrize empty throws");
+  expect(throws_error([] {
+           molsymm::Tolerances tol;
+           tol.max_group_order = 8;
+           (void)molsymm::analyze(benzene(), tol);
+         }),
+         "max_group_order too small throws");
 
   {
     molsymm::Molecule m;
@@ -1498,6 +1470,12 @@ void test_helpers_and_errors() {
 
   auto a = molsymm::analyze(water());
   expect(throws_error([&] { a.select_subgroup("NotAGroup"); }), "unknown subgroup throws");
+  {
+    auto c1 = a;
+    c1.select_subgroup("C1");
+    auto d1 = molsymm::unique_displacements(c1, 1e-3);
+    expect(static_cast<int>(d1.displacements.size()) == 9, "C1 water has 9 unique displacements");
+  }
   auto d = molsymm::unique_displacements(a, 1e-3);
   expect(throws_error([&] {
            (void)d.gradient_from_energies(std::vector<double>{0.0}, std::vector<double>{0.0, 0.0});
@@ -1546,6 +1524,9 @@ void test_helpers_and_errors() {
     H(0, 0) = 2.0;
     Eigen::MatrixXd Hs = molsymm::symmetrize_hessian(kh, H);
     expect(std::abs(Hs(0, 0) - Hs(1, 1)) < 1e-12, "Kh hessian isotropic");
+    auto dkh = molsymm::unique_displacements(kh, 1e-3);
+    expect(dkh.displacements.empty(), "Kh has no unique displacements");
+    expect(has_subgroup(kh, "Cs") && has_subgroup(kh, "Ci"), "Kh lists Cs/Ci");
   }
 
   {

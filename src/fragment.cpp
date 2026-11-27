@@ -45,17 +45,6 @@ int validate_operations(const std::vector<Operation>& ops, int n) {
   return identity;
 }
 
-void canonicalize(Vec3& d) {
-  for (int k = 0; k < 3; ++k) {
-    if (std::abs(d(k)) > 1e-10) {
-      if (d(k) < 0) {
-        d = -d;
-      }
-      break;
-    }
-  }
-}
-
 Mat3 site_projector(const std::vector<Operation>& ops, int atom) {
   Mat3 P = Mat3::Zero();
   int count = 0;
@@ -78,7 +67,7 @@ std::vector<Vec3> free_axes_of(const Mat3& projector, const Mat3& orientation) {
     }
     Vec3 out = orientation.transpose() * es.eigenvectors().col(k).normalized();
     out.normalize();
-    canonicalize(out);
+    detail::canonicalize_direction(out);
     axes.push_back(out);
   }
   return axes;

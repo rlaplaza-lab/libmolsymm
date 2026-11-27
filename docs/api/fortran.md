@@ -16,7 +16,7 @@ on failure. Type `ms_zatom` mirrors the C Z-matrix row.
 | `ms_analyze_zmatrix(rows, handle, status [, primary])` | Analyze Z-matrix |
 | `ms_zmatrix_to_xyz(rows, xyz, status)` | Z-matrix → XYZ |
 | `ms_release(handle)` | Free analysis |
-| `ms_point_group_name` / `ms_symmetry_number` / `ms_order` | Metadata |
+| `ms_point_group_name` / `ms_symmetry_number` / `ms_order` / `ms_rmsd` | Metadata |
 | `ms_symmetrize(handle, xyz_out, rmsd, status)` | Symmetrize |
 | `ms_symmetrize_data(..., status [, forces, forces_out, hessian, hessian_out, primary])` | One-shot |
 | `ms_unique_displacements` / `ms_n_displacements` / `ms_displacement_geometry` / `ms_hessian_from_gradients` / `ms_release_displacements` | Displacements |

@@ -1,5 +1,7 @@
 #include "molsymm/molsymm.hpp"
 
+#include "fixtures.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -9,6 +11,13 @@
 #include <vector>
 
 namespace {
+
+using molsymm::test::benzene;
+using molsymm::test::co2;
+using molsymm::test::kPi;
+using molsymm::test::methane;
+using molsymm::test::sf6;
+using molsymm::test::water;
 
 int g_failed = 0;
 int g_passed = 0;
@@ -55,54 +64,6 @@ double chi_on(const molsymm::Analysis& a, const std::string& irrep, const molsym
       .characters[static_cast<std::size_t>(ir)][static_cast<std::size_t>(op.class_index)];
 }
 
-molsymm::Molecule water() {
-  std::vector<int> z{8, 1, 1};
-  std::vector<double> xyz{0.0, 0.0, 0.1173, 0.0, 0.7572, -0.4692, 0.0, -0.7572, -0.4692};
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule methane() {
-  const double a = 0.627;
-  std::vector<int> z{6, 1, 1, 1, 1};
-  std::vector<double> xyz{0, 0, 0, a, a, a, a, -a, -a, -a, a, -a, -a, -a, a};
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule benzene() {
-  std::vector<int> z(12, 6);
-  for (int i = 6; i < 12; ++i) {
-    z[static_cast<std::size_t>(i)] = 1;
-  }
-  std::vector<double> xyz;
-  constexpr double kPi = 3.14159265358979323846;
-  for (int i = 0; i < 6; ++i) {
-    const double ang = 2.0 * kPi * i / 6.0;
-    xyz.push_back(1.39 * std::cos(ang));
-    xyz.push_back(1.39 * std::sin(ang));
-    xyz.push_back(0.0);
-  }
-  for (int i = 0; i < 6; ++i) {
-    const double ang = 2.0 * kPi * i / 6.0;
-    xyz.push_back(2.47 * std::cos(ang));
-    xyz.push_back(2.47 * std::sin(ang));
-    xyz.push_back(0.0);
-  }
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule sf6() {
-  std::vector<int> z{16, 9, 9, 9, 9, 9, 9};
-  const double r = 1.56;
-  std::vector<double> xyz{0, 0, 0, r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r, 0, 0, 0, r, 0, 0, -r};
-  return molsymm::Molecule(z, xyz);
-}
-
-molsymm::Molecule co2() {
-  std::vector<int> z{6, 8, 8};
-  std::vector<double> xyz{0, 0, 0, 0, 0, 1.16, 0, 0, -1.16};
-  return molsymm::Molecule(z, xyz);
-}
-
 molsymm::Molecule staggered_ethane() {
   std::vector<int> z{1, 6, 1, 1, 6, 1, 1, 1};
   std::vector<double> xyz{1.1851,  -0.0039, 0.9875,  0.7516,  -0.0225, -0.0209, 1.1669, 0.8330,
@@ -112,7 +73,6 @@ molsymm::Molecule staggered_ethane() {
 }
 
 molsymm::Molecule square_antiprism() {
-  constexpr double kPi = 3.14159265358979323846;
   constexpr double r = 1.0;
   constexpr double z = 0.7;
   std::vector<int> atomic(8, 6);
@@ -193,7 +153,6 @@ void test_benzene_e1g_s_columns() {
       continue;
     }
     const double phi = std::atan2(u.y(), u.x());
-    constexpr double kPi = 3.14159265358979323846;
     const double step = kPi / 3.0;
     double t = std::fmod(std::abs(phi), step);
     if (t > 0.5 * step) {
@@ -303,8 +262,17 @@ void test_cubic_subgroups() {
     for (const auto& [name, order] : {std::pair<const char*, int>{"T", 12},
                                       {"O", 24},
                                       {"Oh", 48},
+                                      {"Ci", 2},
+                                      {"Cs", 2},
+                                      {"C2h", 4},
+                                      {"C4v", 8},
+                                      {"C4h", 8},
+                                      {"D2", 4},
+                                      {"D2h", 8},
                                       {"D2d", 8},
+                                      {"D4", 8},
                                       {"D4h", 16},
+                                      {"D3", 6},
                                       {"D3d", 12}}) {
       auto sub = a;
       sub.select_subgroup(name);
