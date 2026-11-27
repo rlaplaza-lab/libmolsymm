@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <ranges>
 #include <utility>
 
 namespace molsymm::detail {
@@ -588,20 +589,14 @@ bool realize_subgroup(const std::string& name,
   };
 
   if (name == "Cs") {
-    for (const Operation& op : parent) {
-      if (op.kind == OperationKind::Reflection && attempt({op})) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(parent, [&](const Operation& op) {
+      return op.kind == OperationKind::Reflection && attempt({op});
+    });
   }
   if (name == "Ci") {
-    for (const Operation& op : parent) {
-      if (op.kind == OperationKind::Inversion && attempt({op})) {
-        return true;
-      }
-    }
-    return false;
+    return std::ranges::any_of(parent, [&](const Operation& op) {
+      return op.kind == OperationKind::Inversion && attempt({op});
+    });
   }
 
   if (name == "T") {

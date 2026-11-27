@@ -182,6 +182,10 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-24.04
+    # Protected-branch uploads still need auth; OIDC avoids a CODECOV_TOKEN secret.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
 
@@ -229,7 +233,6 @@ jobs:
             build
           test -s coverage.xml
 
-      # Org has token auth disabled for public repos → tokenless upload on main.
       - name: Upload coverage
         uses: codecov/codecov-action@v5
         with:
@@ -239,6 +242,7 @@ jobs:
           flags: unittests
           name: libmolsymm
           fail_ci_if_error: true
+          use_oidc: true
 
   ci:
     name: CI gate

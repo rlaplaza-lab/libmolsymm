@@ -225,9 +225,10 @@ void test_d4d_characters() {
       expect(std::abs(chi_on(a, "E1", op)) < 1e-6, "D4d E1(C4) = 0");
       saw_c4 = true;
     }
+    // C4^1 / C4^3 have tr = 1; half-turns are order 2 or C4^2 (tr = −1).
     const bool principal_c2 = op.order == 2 || (op.order == 4 && op.power == 2) ||
                               std::abs(op.matrix.trace() + 1.0) < 1e-4;
-    if (principal_c2 && !(op.order == 4 && (op.power == 1 || op.power == 3))) {
+    if (principal_c2) {
       expect(std::abs(chi_on(a, "E1", op) + 2.0) < 1e-6, "D4d E1(C2) = −2");
       saw_c2 = true;
     }
