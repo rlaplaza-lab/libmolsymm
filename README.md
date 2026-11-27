@@ -1,11 +1,15 @@
 # libmolsymm
 
 [![PyPI](https://img.shields.io/pypi/v/libmolsymm.svg)](https://pypi.org/project/libmolsymm/)
+[![CI](https://github.com/rlaplaza-lab/libmolsymm/actions/workflows/ci.yml/badge.svg)](https://github.com/rlaplaza-lab/libmolsymm/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/rlaplaza-lab/libmolsymm/branch/main/graph/badge.svg)](https://codecov.io/gh/rlaplaza-lab/libmolsymm)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://rlaplaza-lab.github.io/libmolsymm/)
 
 Point-group detection, character tables, subgroups, symmetrization,
 asymmetric-unit reconstruction, and symmetry-reduced finite-difference
 displacements. C++20 core with C, Python, and Fortran bindings. Coordinates
 are ångströms; Z-matrix angles are radians (1-based indices, `0` unused).
+**[API docs](https://rlaplaza-lab.github.io/libmolsymm/)** cover all bindings.
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

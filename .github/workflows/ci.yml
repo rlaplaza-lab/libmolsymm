@@ -179,10 +179,68 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: ctest --test-dir build --output-on-failure --timeout 180
 
+  coverage:
+    name: coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          # GitHub images sometimes ship a broken Microsoft packages mirror (403).
+          sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list \
+                     /etc/apt/sources.list.d/msprod.list \
+                     /etc/apt/sources.list.d/microsoft*.list || true
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build gcovr \
+            python3-dev python3-numpy libeigen3-dev
+
+      - name: Configure (coverage)
+        env:
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="--coverage -O0 -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage" \
+            -DCMAKE_SHARED_LINKER_FLAGS="--coverage" \
+            -DMOLSYMM_BUILD_PYTHON=ON \
+            -DMOLSYMM_BUILD_FORTRAN=OFF \
+            -DMOLSYMM_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure --timeout 180
+
+      - name: Coverage report
+        run: |
+          gcovr --root . \
+            --filter 'src/' \
+            --filter 'include/' \
+            --exclude-unreachable-branches \
+            --exclude-throw-branches \
+            --xml coverage.xml \
+            --xml-pretty \
+            --print-summary \
+            build
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          flags: unittests
+          name: libmolsymm
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   ci:
     name: CI gate
     runs-on: ubuntu-24.04
-    needs: [lint, test, sanitize]
+    needs: [lint, test, sanitize, coverage]
     if: always()
     steps:
       - name: Require all jobs succeeded
@@ -190,6 +248,8 @@ jobs:
           echo "lint=${{ needs.lint.result }}"
           echo "test=${{ needs.test.result }}"
           echo "sanitize=${{ needs.sanitize.result }}"
+          echo "coverage=${{ needs.coverage.result }}"
           test "${{ needs.lint.result }}" = "success"
           test "${{ needs.test.result }}" = "success"
           test "${{ needs.sanitize.result }}" = "success"
+          test "${{ needs.coverage.result }}" = "success"

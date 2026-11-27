@@ -15,6 +15,7 @@ __pycache__/
 compile_commands.json
 .pytest_cache/
 .ruff_cache/
+site/
 wheelhouse/
 timer.dat
 # Local PySCF/Psi4 corpus helpers (not part of the shipped test suite).

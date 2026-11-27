@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "libmolsymm"
-version = "1.1.0"
+version = "2.0.0"
 description = "Molecular point-group symmetry, asymmetric-unit reconstruction, Z-matrix input, and symmetry-reduced finite differences"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -32,6 +32,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/rlaplaza-lab/libmolsymm"
+Documentation = "https://rlaplaza-lab.github.io/libmolsymm/"
 Repository = "https://github.com/rlaplaza-lab/libmolsymm"
 Issues = "https://github.com/rlaplaza-lab/libmolsymm/issues"
 
