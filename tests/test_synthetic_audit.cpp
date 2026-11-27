@@ -300,7 +300,12 @@ void tautology_from_infinity() {
 
 void test_synthetic_audit() {
   g_fail = 0;
-  std::mt19937 rng(12345);
+  std::mt19937 rng(12345); // NOLINT(cert-msc32-c,cert-msc51-cpp) — reproducible audit
+  auto arrow = [](std::string a, const std::string& b) {
+    a += "->";
+    a += b;
+    return a;
+  };
   for (const Parent& par : parents()) {
     const std::vector<Mat3> g = close_group(par.gens);
     Analysis a;
@@ -321,18 +326,18 @@ void test_synthetic_audit() {
       try {
         Analysis s = a;
         s.select_subgroup(sg);
-        check_table(s, par.name + "->" + sg);
+        check_table(s, arrow(par.name, sg));
         for (const std::string& sg2 : s.subgroups) {
           try {
             Analysis s2 = s;
             s2.select_subgroup(sg2);
-            check_table(s2, par.name + "->" + sg + "->" + sg2);
+            check_table(s2, arrow(arrow(par.name, sg), sg2));
           } catch (const std::exception& e) {
-            fail(par.name + "->" + sg + "->" + sg2 + " threw: " + e.what());
+            fail(arrow(arrow(par.name, sg), sg2) + " threw: " + e.what());
           }
         }
       } catch (const std::exception& e) {
-        fail(par.name + "->" + sg + " threw: " + e.what());
+        fail(arrow(par.name, sg) + " threw: " + e.what());
       }
     }
 

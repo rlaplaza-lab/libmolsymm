@@ -25,6 +25,11 @@ Distributed under the GNU General Public License v3.0. The full license text
 is in iqmol/LICENSE (copied from upstream). Vendored as test inputs only; not
 linked into the library.
 
+Selected geometries (and anion-pi.xyz) were projected onto their manifest
+target group via `tests/make_corpus.py --symmetrize` (Cyclopropane→D3h,
+Ethane→D3d). XYZ comments note the projection; re-run that flag (or
+`--audit-only` with oracles) to refresh.
+
 ---
 
 anion-pi.xyz — from https://github.com/aligfellow/xyzgraph/tree/main/examples

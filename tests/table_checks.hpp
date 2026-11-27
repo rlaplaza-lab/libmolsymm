@@ -76,7 +76,7 @@ void check_character_table(const molsymm::Analysis& a, const std::string& label,
     }
   }
   static const std::set<std::string> cubic{"T", "Th", "Td", "O", "Oh", "I", "Ih"};
-  if (cubic.count(a.point_group) > 0 &&
+  if (cubic.contains(a.point_group) &&
       std::set<std::string>(ct.class_labels.begin(), ct.class_labels.end()).size() !=
           ct.class_labels.size()) {
     std::string all;

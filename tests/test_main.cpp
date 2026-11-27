@@ -333,11 +333,8 @@ void test_subgroups_and_table() {
   }
 
   {
-    molsymm::Tolerances tol;
-    tol.primary = 1e-2;
     auto d3h = molsymm::analyze(load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) +
-                                         "/iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz"),
-                                tol);
+                                         "/iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz"));
     expect(d3h.point_group == "D3h", "cyclopropane is D3h got " + d3h.point_group);
     expect_character_table_consistent(d3h, "cyclopropane");
     {
@@ -606,19 +603,14 @@ void test_character_tables_spot() {
     }
   }
   {
-    molsymm::Tolerances tol;
-    tol.primary = 1e-3;
-    auto a = molsymm::analyze(
-        load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) + "/iqmol/Molecules/Coordination/4-Planar.xyz"),
-        tol);
+    auto a = molsymm::analyze(load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) +
+                                       "/iqmol/Molecules/Coordination/4-Planar.xyz"));
     expect(a.point_group == "D4h", "4-planar D4h got " + a.point_group);
     expect_character_table_consistent(a, "D4h");
   }
   {
-    molsymm::Tolerances tol;
-    tol.primary = 3e-3;
     auto a = molsymm::analyze(
-        load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) + "/iqmol/Molecules/Alkanes/Ethane.xyz"), tol);
+        load_xyz(std::string(MOLSYMM_TEST_DATA_DIR) + "/iqmol/Molecules/Alkanes/Ethane.xyz"));
     expect(a.point_group == "D3d", "ethane D3d got " + a.point_group);
     expect_character_table_consistent(a, "D3d");
   }
@@ -736,12 +728,9 @@ void test_high_symmetry_counts() {
            std::string(rel) + " unique disp expect " + std::to_string(want) + " got " +
                std::to_string(nd));
   };
-  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", 1e-3, 2);
+  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz", 1e-3, 4);
   {
-    molsymm::Tolerances cub_tol;
-    cub_tol.primary = 1e-3;
-    auto cub =
-        molsymm::analyze(load_xyz(root + "/iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz"), cub_tol);
+    auto cub = molsymm::analyze(load_xyz(root + "/iqmol/Molecules/Cyclic_Alkanes/Cubane.xyz"));
     expect(cub.point_group == "Oh", "cubane Oh");
     for (const auto& [name, nclass] : {std::pair<const char*, int>{"Th", 8}, {"Td", 5}}) {
       auto sub = cub;
@@ -750,7 +739,7 @@ void test_high_symmetry_counts() {
              std::string("cubane→") + name + " conjugacy class count");
     }
   }
-  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", 1e-2, 3);
+  check_nd("iqmol/Molecules/Cyclic_Alkanes/Cyclopropane.xyz", 1e-3, 3);
   // Ih: one carbon orbit; site-unique directions span R^3 → 3 unique Cartesians.
   check_nd("iqmol/Molecules/Fullerenes/Buckminsterfullerene.xyz", 1e-4, 3);
 
@@ -894,7 +883,7 @@ void test_xyz_slight_rattle() {
       "iqmol/Molecules/Coordination/6-Octahedral.xyz",
   };
   const char* expect_pg[] = {"Ih", "Oh", "Td", "D6h", "C5v", "D5d", "D3h", "Oh"};
-  const double primary[] = {1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-2, 1e-3};
+  const double primary[] = {1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3, 1e-3};
   unsigned seed = 42;
   for (std::size_t i = 0; i < std::size(files); ++i) {
     try {

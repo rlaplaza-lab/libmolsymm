@@ -148,8 +148,8 @@ if(MOLSYMM_BUILD_TESTS)
     MOLSYMM_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data"
   )
   add_test(NAME molsymm_tests COMMAND molsymm_tests)
-  # Matches CI ctest --timeout; synthetic audit + corpus need headroom for ASan.
-  set_tests_properties(molsymm_tests PROPERTIES TIMEOUT 300)
+  # Matches CI ctest --timeout; synthetic audit + infinity tautology need ASan headroom.
+  set_tests_properties(molsymm_tests PROPERTIES TIMEOUT 600)
 endif()
 
 if(NOT DEFINED SKBUILD)

@@ -58,9 +58,11 @@ molsymm::Molecule load_xyz(const std::string& path) {
   return molsymm::Molecule(z, xyz);
 }
 
-void walk(const Analysis& a, const std::string& path, int depth) {
+void walk(const Analysis& a, const std::string& path, int depth) { // NOLINT(misc-no-recursion)
   for (const std::string& sg : a.subgroups) {
-    const std::string label = path + "->" + sg;
+    std::string label = path;
+    label += "->";
+    label += sg;
     try {
       Analysis s = a;
       s.select_subgroup(sg);

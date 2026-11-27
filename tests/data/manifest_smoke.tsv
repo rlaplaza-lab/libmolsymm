@@ -2,12 +2,12 @@ path	group	order	sigma	primary	max_rmsd	source
 iqmol/Functional_Groups/Phosphorus_Groups/Phosphate.xyz	C1	1	1	0.0001	5e-05	agree
 iqmol/Functional_Groups/Aldehyde.xyz	Cs	2	1	0.0001	5e-05	agree
 iqmol/Functional_Groups/Nitrogen_Groups/Amine.xyz	C2v	4	2	0.0001	5e-05	operations
-iqmol/Molecules/Alkanes/2-Methylpropane.xyz	C3v	6	3	0.001	0.000727784	operations
-iqmol/Molecules/Alkanes/Methane.xyz	Td	24	12	0.001	0.00025	operations
-iqmol/Molecules/Alkenes/Ethene.xyz	D2h	8	4	0.001	0.000388197	operations
-iqmol/Molecules/Alkynes/Acetylene.xyz	Dinfh	0	2	0.001	0.000273549	operations
+iqmol/Molecules/Alkanes/2-Methylpropane.xyz	C3v	6	3	0.0001	5e-05	operations
+iqmol/Molecules/Alkanes/Methane.xyz	Td	24	12	0.0001	5e-05	operations
+iqmol/Molecules/Alkenes/Ethene.xyz	D2h	8	4	0.0001	5e-05	operations
+iqmol/Molecules/Alkynes/Acetylene.xyz	Dinfh	0	2	0.0001	5e-05	operations
 iqmol/Functional_Groups/Alcohol.xyz	Cinfv	0	1	0.0001	5e-05	agree
-iqmol/Molecules/Aromatics/Benzene.xyz	D6h	24	12	0.001	0.000359162	operations
+iqmol/Molecules/Aromatics/Benzene.xyz	D6h	24	12	0.0001	5e-05	operations
 iqmol/Molecules/Coordination/3-Trigonal-planar.xyz	D3h	12	6	0.0001	5e-05	operations
 iqmol/Molecules/Coordination/6-Octahedral.xyz	Oh	48	24	0.0001	9.85658e-05	operations
 iqmol/Molecules/Ethers/12-Crown-4.xyz	S4	4	2	0.0001	5e-05	agree
