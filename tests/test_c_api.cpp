@@ -168,7 +168,7 @@ void test_c_api_water() {
     int naxes = 0;
     unsigned char mask[3] = {};
     double axis[3] = {};
-    double rep_xyz[6] = {
+    const double rep_xyz[6] = {
         kWaterXyz[0], kWaterXyz[1], kWaterXyz[2], kWaterXyz[3], kWaterXyz[4], kWaterXyz[5]};
     double xyz_out[9] = {};
     expect(molsymm_n_representatives(f, &nrep) == 0 && nrep == 2, "n_representatives");
@@ -198,7 +198,7 @@ void test_c_api_water() {
     int piece_n = 0;
     int naxes = 0;
     double axis[3] = {};
-    double piece_xyz[6] = {
+    const double piece_xyz[6] = {
         kWaterXyz[0], kWaterXyz[1], kWaterXyz[2], kWaterXyz[3], kWaterXyz[4], kWaterXyz[5]};
     double xyz_out[9] = {};
     expect(molsymm_assembly_n_pieces(asm_, &npieces) == 0 && npieces == 1, "assembly_n_pieces");
@@ -225,7 +225,7 @@ void test_c_api_water() {
 
 void test_c_api_symmetrize_and_zmatrix() {
   const double rattled[9] = {0.0, 0.0, 0.1173, 0.02, 0.7572, -0.4692, 0.0, -0.7572, -0.4692};
-  double forces[9] = {0.1, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, -0.2, 0.0};
+  const double forces[9] = {0.1, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, -0.2, 0.0};
   double hess[81] = {};
   for (int i = 0; i < 9; ++i) {
     hess[i * 9 + i] = 1.0;
