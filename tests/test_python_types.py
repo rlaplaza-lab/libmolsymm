@@ -151,6 +151,33 @@ def test_fragmentation_and_assembly() -> None:
     assert np.allclose(rebuilt, positions, atol=1e-6)
 
 
+def test_wyckoff() -> None:
+    # --8<-- [start:wyckoff]
+    sites = molsymm.wyckoff_positions("Oh")
+    plans = molsymm.wyckoff_plans("Oh", [16, 9, 9, 9, 9, 9, 9])
+    a = molsymm.assemble_from_au(
+        "Oh",
+        [16, 9],
+        np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.56]]),
+        site_labels=["1a", "6a"],
+    )
+    frag = a.fragmentation()
+    # --8<-- [end:wyckoff]
+    assert any(s.label == "1a" and s.degrees_of_freedom == 0 for s in sites)
+    assert any(s.label == "6a" and s.multiplicity == 6 for s in sites)
+    assert len(plans) == 1
+    assert a.point_group == "Oh"
+    assert len(a.atomic_numbers) == 7
+    assert len(frag.representatives) == 2
+    p12 = molsymm.wyckoff_plans("Oh", 12)
+    assert len(p12) >= 2
+    try:
+        molsymm.wyckoff_positions("Cinfv")
+        raise AssertionError("expected Cinfv to fail")
+    except RuntimeError:
+        pass
+
+
 def test_zmatrix() -> None:
     angle = 104.5 * np.pi / 180.0
     entries: Sequence[ZMatrixRow] = [

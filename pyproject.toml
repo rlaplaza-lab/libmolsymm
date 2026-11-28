@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "libmolsymm"
-version = "2.0.0"
+version = "3.0.0"
 description = "Molecular point-group symmetry, asymmetric-unit reconstruction, Z-matrix input, and symmetry-reduced finite differences"
 readme = "README.md"
 requires-python = ">=3.11"

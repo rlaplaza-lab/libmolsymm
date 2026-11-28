@@ -45,6 +45,14 @@ struct molsymm_assembly {
   molsymm::SubgroupAssembly assembly;
 };
 
+struct molsymm_wyckoff_table {
+  std::vector<molsymm::WyckoffSite> sites;
+};
+
+struct molsymm_wyckoff_plans {
+  std::vector<molsymm::WyckoffPlan> plans;
+};
+
 namespace {
 
 thread_local std::string g_error;
@@ -721,6 +729,207 @@ int molsymm_assemble(const molsymm_assembly* asm_, const double* piece_xyz, doub
       xyz_out[3 * i + 1] = p.y();
       xyz_out[3 * i + 2] = p.z();
     }
+  });
+}
+
+int molsymm_wyckoff_positions(const char* point_group, molsymm_wyckoff_table** out) {
+  return guard([&] {
+    if (!point_group || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    auto* handle = new molsymm_wyckoff_table;
+    handle->sites = molsymm::wyckoff_positions(point_group);
+    *out = handle;
+  });
+}
+
+void molsymm_free_wyckoff_table(molsymm_wyckoff_table* t) {
+  delete t;
+}
+
+int molsymm_wyckoff_n_sites(const molsymm_wyckoff_table* t, int* out) {
+  return guard([&] {
+    if (!t || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    *out = static_cast<int>(t->sites.size());
+  });
+}
+
+int molsymm_wyckoff_site_label(const molsymm_wyckoff_table* t, int index, char* buf, int buflen) {
+  return guard([&] {
+    if (!t || !buf || buflen <= 0) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (index < 0 || index >= static_cast<int>(t->sites.size())) {
+      throw molsymm::Error("index out of range");
+    }
+    const std::string& s = t->sites[static_cast<std::size_t>(index)].label;
+    if (static_cast<int>(s.size()) + 1 > buflen) {
+      throw molsymm::Error("buffer too small");
+    }
+    std::snprintf(buf, static_cast<std::size_t>(buflen), "%s", s.c_str());
+  });
+}
+
+int molsymm_wyckoff_site_symmetry(const molsymm_wyckoff_table* t,
+                                  int index,
+                                  char* buf,
+                                  int buflen) {
+  return guard([&] {
+    if (!t || !buf || buflen <= 0) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (index < 0 || index >= static_cast<int>(t->sites.size())) {
+      throw molsymm::Error("index out of range");
+    }
+    const std::string& s = t->sites[static_cast<std::size_t>(index)].site_symmetry;
+    if (static_cast<int>(s.size()) + 1 > buflen) {
+      throw molsymm::Error("buffer too small");
+    }
+    std::snprintf(buf, static_cast<std::size_t>(buflen), "%s", s.c_str());
+  });
+}
+
+int molsymm_wyckoff_site_multiplicity(const molsymm_wyckoff_table* t, int index, int* out) {
+  return guard([&] {
+    if (!t || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (index < 0 || index >= static_cast<int>(t->sites.size())) {
+      throw molsymm::Error("index out of range");
+    }
+    *out = t->sites[static_cast<std::size_t>(index)].multiplicity;
+  });
+}
+
+int molsymm_wyckoff_site_dof(const molsymm_wyckoff_table* t, int index, int* out) {
+  return guard([&] {
+    if (!t || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (index < 0 || index >= static_cast<int>(t->sites.size())) {
+      throw molsymm::Error("index out of range");
+    }
+    *out = t->sites[static_cast<std::size_t>(index)].degrees_of_freedom;
+  });
+}
+
+int molsymm_wyckoff_plans_composition(const char* point_group,
+                                      const int* atomic_numbers,
+                                      int n,
+                                      molsymm_wyckoff_plans** out) {
+  return guard([&] {
+    if (!point_group || !out || n < 0 || (n > 0 && !atomic_numbers)) {
+      throw molsymm::Error("invalid arguments");
+    }
+    std::vector<int> zs(atomic_numbers, atomic_numbers + n);
+    auto* handle = new molsymm_wyckoff_plans;
+    handle->plans = molsymm::wyckoff_plans(point_group, zs);
+    *out = handle;
+  });
+}
+
+int molsymm_wyckoff_plans_nsites(const char* point_group,
+                                 int n_sites,
+                                 molsymm_wyckoff_plans** out) {
+  return guard([&] {
+    if (!point_group || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    auto* handle = new molsymm_wyckoff_plans;
+    handle->plans = molsymm::wyckoff_plans(point_group, n_sites);
+    *out = handle;
+  });
+}
+
+void molsymm_free_wyckoff_plans(molsymm_wyckoff_plans* p) {
+  delete p;
+}
+
+int molsymm_wyckoff_n_plans(const molsymm_wyckoff_plans* p, int* out) {
+  return guard([&] {
+    if (!p || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    *out = static_cast<int>(p->plans.size());
+  });
+}
+
+int molsymm_wyckoff_plan_n_orbits(const molsymm_wyckoff_plans* p, int plan, int* out) {
+  return guard([&] {
+    if (!p || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (plan < 0 || plan >= static_cast<int>(p->plans.size())) {
+      throw molsymm::Error("plan index out of range");
+    }
+    *out = static_cast<int>(p->plans[static_cast<std::size_t>(plan)].orbits.size());
+  });
+}
+
+int molsymm_wyckoff_plan_orbit_label(
+    const molsymm_wyckoff_plans* p, int plan, int orbit, char* buf, int buflen) {
+  return guard([&] {
+    if (!p || !buf || buflen <= 0) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (plan < 0 || plan >= static_cast<int>(p->plans.size())) {
+      throw molsymm::Error("plan index out of range");
+    }
+    const auto& orbits = p->plans[static_cast<std::size_t>(plan)].orbits;
+    if (orbit < 0 || orbit >= static_cast<int>(orbits.size())) {
+      throw molsymm::Error("orbit index out of range");
+    }
+    const std::string& s = orbits[static_cast<std::size_t>(orbit)].label;
+    if (static_cast<int>(s.size()) + 1 > buflen) {
+      throw molsymm::Error("buffer too small");
+    }
+    std::snprintf(buf, static_cast<std::size_t>(buflen), "%s", s.c_str());
+  });
+}
+
+int molsymm_wyckoff_plan_orbit_z(const molsymm_wyckoff_plans* p, int plan, int orbit, int* out) {
+  return guard([&] {
+    if (!p || !out) {
+      throw molsymm::Error("invalid arguments");
+    }
+    if (plan < 0 || plan >= static_cast<int>(p->plans.size())) {
+      throw molsymm::Error("plan index out of range");
+    }
+    const auto& orbits = p->plans[static_cast<std::size_t>(plan)].orbits;
+    if (orbit < 0 || orbit >= static_cast<int>(orbits.size())) {
+      throw molsymm::Error("orbit index out of range");
+    }
+    *out = orbits[static_cast<std::size_t>(orbit)].atomic_number;
+  });
+}
+
+int molsymm_assemble_from_au(const char* point_group,
+                             const int* representative_numbers,
+                             const double* au_xyz,
+                             int n_orbits,
+                             const char** site_labels,
+                             molsymm_analysis** out) {
+  return guard([&] {
+    if (!point_group || !out || n_orbits < 0 ||
+        (n_orbits > 0 && (!representative_numbers || !au_xyz || !site_labels))) {
+      throw molsymm::Error("invalid arguments");
+    }
+    std::vector<int> zs(representative_numbers, representative_numbers + n_orbits);
+    std::vector<molsymm::Vec3> pos(static_cast<std::size_t>(n_orbits));
+    std::vector<std::string> labels(static_cast<std::size_t>(n_orbits));
+    for (int i = 0; i < n_orbits; ++i) {
+      pos[static_cast<std::size_t>(i)] =
+          molsymm::Vec3(au_xyz[3 * i], au_xyz[3 * i + 1], au_xyz[3 * i + 2]);
+      if (!site_labels[i]) {
+        throw molsymm::Error("null site label");
+      }
+      labels[static_cast<std::size_t>(i)] = site_labels[i];
+    }
+    auto* handle = new molsymm_analysis;
+    handle->a = molsymm::assemble_from_au(point_group, zs, pos, labels);
+    *out = handle;
   });
 }
 

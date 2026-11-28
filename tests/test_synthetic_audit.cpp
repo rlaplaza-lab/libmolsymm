@@ -135,7 +135,7 @@ std::set<Bits> enumerate_subgroups(const std::vector<Mat3>& g) {
     }
     Bits b{0, 0};
     for (int e : elems) {
-      b[static_cast<std::size_t>(e / 64)] |= (std::uint64_t{1} << (e % 64));
+      b[static_cast<std::size_t>(e / 64)] |= (std::uint64_t{1} << static_cast<unsigned>(e % 64));
     }
     return b;
   };

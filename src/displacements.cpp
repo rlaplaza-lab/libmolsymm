@@ -414,11 +414,11 @@ DisplacementSet::hessian_from_gradients(std::span<const Eigen::VectorXd> g_plus,
 
 namespace {
 
-void project_linear_hessian_block(Eigen::Ref<Eigen::Matrix3d> block) {
+void project_linear_hessian_block(Eigen::Matrix3d& block) {
   Eigen::Matrix3d out = Eigen::Matrix3d::Zero();
   out(0, 0) = out(1, 1) = 0.5 * (block(0, 0) + block(1, 1));
   out(2, 2) = block(2, 2);
-  block = out;
+  block = std::move(out);
 }
 
 int inversion_partner(const Analysis& analysis, int atom) {

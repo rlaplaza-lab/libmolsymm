@@ -82,6 +82,53 @@ program test_fortran
 
   call ms_release(handle)
 
+  ! --- wyckoff smoke ---
+  block
+    type(c_ptr) :: thandle, phandle, whandle
+    integer(c_int) :: nsites, nplans, norb, mult, dof, z_au(2)
+    character(len=16) :: label
+    character(len=8) :: site_labels(2)
+    real(c_double) :: au_xyz(3,2)
+    call ms_wyckoff_positions("Oh", thandle, status)
+    if (status /= 0) then
+      print *, "wyckoff_positions failed: ", ms_last_error()
+      nfail = nfail + 1
+    else
+      call ms_wyckoff_n_sites(thandle, nsites, status)
+      if (nsites < 5) nfail = nfail + 1
+      call ms_wyckoff_site_label(thandle, 1_c_int, label, status)
+      call ms_wyckoff_site_multiplicity(thandle, 1_c_int, mult, status)
+      call ms_wyckoff_site_dof(thandle, 1_c_int, dof, status)
+      if (mult /= 1_c_int .or. dof /= 0_c_int) nfail = nfail + 1
+      call ms_release_wyckoff_table(thandle)
+    end if
+    call ms_wyckoff_plans_nsites("Oh", 12_c_int, phandle, status)
+    if (status /= 0) then
+      print *, "wyckoff_plans failed: ", ms_last_error()
+      nfail = nfail + 1
+    else
+      call ms_wyckoff_n_plans(phandle, nplans, status)
+      if (nplans < 2) nfail = nfail + 1
+      call ms_wyckoff_plan_n_orbits(phandle, 1_c_int, norb, status)
+      call ms_wyckoff_plan_orbit_label(phandle, 1_c_int, 1_c_int, label, status)
+      call ms_release_wyckoff_plans(phandle)
+    end if
+    z_au = [16_c_int, 9_c_int]
+    au_xyz(:,1) = [0.0d0, 0.0d0, 0.0d0]
+    au_xyz(:,2) = [0.0d0, 0.0d0, 1.56d0]
+    site_labels = ["1a", "6a"]
+    call ms_assemble_from_au("Oh", z_au, au_xyz, site_labels, whandle, status)
+    if (status /= 0) then
+      print *, "assemble_from_au failed: ", ms_last_error()
+      nfail = nfail + 1
+    else
+      call ms_point_group_name(whandle, name, status)
+      call ms_order(whandle, order, status)
+      if (trim(name) /= "Oh" .or. order /= 48_c_int) nfail = nfail + 1
+      call ms_release(whandle)
+    end if
+  end block
+
   ! --- z-matrix smoke ---
   ang = 104.5d0 * acos(-1.0d0) / 180.0d0
   zatoms = ms_zatom(0, 0, 0, 0, 0.0d0, 0.0d0, 0.0d0)

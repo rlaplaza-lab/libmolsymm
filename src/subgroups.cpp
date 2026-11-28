@@ -223,7 +223,7 @@ std::vector<std::string> constructive_subgroups(const std::string& name, int n) 
   return s;
 }
 
-static int expected_group_order(const std::string& name, int n) {
+int expected_group_order(const std::string& name, int n) {
   if (name == "C1") {
     return 1;
   }

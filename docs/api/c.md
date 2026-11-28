@@ -8,7 +8,8 @@ Shared conventions (units, frames, indices) are on the
 ```
 
 Opaque handles: `molsymm_analysis*`, `molsymm_displacements*`,
-`molsymm_fragmentation*`, `molsymm_assembly*`. Status `0` is success;
+`molsymm_fragmentation*`, `molsymm_assembly*`, `molsymm_wyckoff_table*`,
+`molsymm_wyckoff_plans*`. Status `0` is success;
 `molsymm_last_error()` returns the last message. Free with the matching
 `molsymm_free*` / `molsymm_free`.
 
@@ -44,6 +45,10 @@ Opaque handles: `molsymm_analysis*`, `molsymm_displacements*`,
 | --- | --- |
 | `molsymm_make_fragmentation` / representatives, copies, mask, free axes / `molsymm_reconstruct` | Asymmetric unit |
 | `molsymm_subgroup_assembly` / pieces / free axes / `molsymm_assemble` | Subgroup rebuild |
+| `molsymm_wyckoff_positions` / site accessors | Special positions |
+| `molsymm_wyckoff_plans_composition` / `_nsites` / plan accessors | Orbit plans |
+| `molsymm_assemble_from_au` | Group + AU → `molsymm_analysis*` |
 
 `rep_xyz` for reconstruct is `3 * n_rep`. `piece_xyz` for assemble is the
-concatenated piece coordinates.
+concatenated piece coordinates. `au_xyz` for `assemble_from_au` is `3 * n_orbits`;
+`site_labels` is an array of `n_orbits` C strings.

@@ -234,6 +234,158 @@ void close_group(std::vector<Operation>& ops,
   }
 }
 
+static void tag_operation_from_matrix(Operation& neu, double matrix_tol) {
+  const Mat3& M = neu.matrix;
+  const double det = M.determinant();
+  const double tr = M.trace();
+  if (matrices_equal(M, Mat3::Identity(), matrix_tol)) {
+    neu.kind = OperationKind::Identity;
+    neu.order = 1;
+    neu.power = 0;
+    neu.axis = Vec3::UnitZ();
+    neu.plane = PlaneKind::None;
+    return;
+  }
+  if (matrices_equal(M, -Mat3::Identity(), matrix_tol)) {
+    neu.kind = OperationKind::Inversion;
+    neu.order = 1;
+    neu.power = 0;
+    neu.axis = Vec3::UnitZ();
+    neu.plane = PlaneKind::None;
+    return;
+  }
+  if (std::abs(det - 1.0) < 1e-6) {
+    neu.kind = OperationKind::ProperRotation;
+    int ord = 0;
+    int pow = 0;
+    Vec3 ax = Vec3::UnitZ();
+    if (!classify_proper_rotation(M, ord, pow, ax)) {
+      neu.kind = OperationKind::Identity;
+      neu.order = 1;
+      return;
+    }
+    if (ord <= 1) {
+      neu.kind = OperationKind::Identity;
+      neu.order = 1;
+    } else {
+      neu.order = ord;
+      neu.power = pow;
+      neu.axis = ax;
+    }
+    neu.plane = PlaneKind::None;
+    return;
+  }
+  if (std::abs(det + 1.0) < 1e-6) {
+    if (matrices_equal(M * M, Mat3::Identity(), matrix_tol) && std::abs(tr - 1.0) < 1e-4) {
+      neu.kind = OperationKind::Reflection;
+      neu.order = 1;
+      neu.power = 0;
+      Eigen::SelfAdjointEigenSolver<Mat3> es(0.5 * (M + M.transpose()));
+      neu.axis = Vec3::UnitZ();
+      for (int k = 0; k < 3; ++k) {
+        if (std::abs(es.eigenvalues()(k) + 1.0) < 1e-4) {
+          neu.axis = es.eigenvectors().col(k);
+          break;
+        }
+      }
+      neu.plane = PlaneKind::None;
+      return;
+    }
+    neu.kind = OperationKind::ImproperRotation;
+    Vec3 ax(M(2, 1) - M(1, 2), M(0, 2) - M(2, 0), M(1, 0) - M(0, 1));
+    if (ax.norm() < 1e-8) {
+      Eigen::SelfAdjointEigenSolver<Mat3> es(0.5 * (M + M.transpose()));
+      for (int k = 0; k < 3; ++k) {
+        if (std::abs(es.eigenvalues()(k) + 1.0) < 0.5) {
+          ax = es.eigenvectors().col(k);
+          break;
+        }
+      }
+    }
+    if (ax.norm() > 1e-12) {
+      neu.axis = ax.normalized();
+    } else {
+      neu.axis = Vec3::UnitZ();
+    }
+    neu.order = 2;
+    neu.power = 1;
+    Mat3 P = Mat3::Identity();
+    for (int ord = 1; ord <= 48; ++ord) {
+      P = M * P;
+      if (matrices_equal(P, Mat3::Identity(), matrix_tol)) {
+        neu.order = ord;
+        break;
+      }
+    }
+    Mat3 proper = reflection_matrix(neu.axis) * M;
+    int prop_ord = 0;
+    int prop_pow = 0;
+    Vec3 prop_ax = neu.axis;
+    if (classify_proper_rotation(proper, prop_ord, prop_pow, prop_ax) && prop_ord >= 2 &&
+        neu.order % prop_ord == 0) {
+      neu.power = prop_pow * (neu.order / prop_ord);
+    }
+    neu.plane = PlaneKind::None;
+    return;
+  }
+  neu.kind = OperationKind::Identity;
+  neu.order = 1;
+}
+
+void close_group_abstract(std::vector<Operation>& ops, double matrix_tol, int max_order) {
+  bool has_e = false;
+  for (const Operation& op : ops) {
+    if (op.kind == OperationKind::Identity ||
+        matrices_equal(op.matrix, Mat3::Identity(), matrix_tol)) {
+      has_e = true;
+      break;
+    }
+  }
+  if (!has_e) {
+    Operation e;
+    e.kind = OperationKind::Identity;
+    e.matrix = Mat3::Identity();
+    ops.push_back(e);
+  }
+  for (Operation& op : ops) {
+    if (op.kind == OperationKind::Identity &&
+        matrices_equal(op.matrix, Mat3::Identity(), matrix_tol)) {
+      continue;
+    }
+    tag_operation_from_matrix(op, matrix_tol);
+  }
+
+  bool grew = true;
+  while (grew) {
+    grew = false;
+    const int n = static_cast<int>(ops.size());
+    if (n > max_order) {
+      throw Error("group order exceeded max_group_order");
+    }
+    for (int i = 0; i < n && !grew; ++i) {
+      for (int j = 0; j < n; ++j) {
+        Mat3 M = ops[static_cast<std::size_t>(i)].matrix * ops[static_cast<std::size_t>(j)].matrix;
+        bool found = false;
+        for (const Operation& op : ops) {
+          if (matrices_equal(op.matrix, M, matrix_tol)) {
+            found = true;
+            break;
+          }
+        }
+        if (found) {
+          continue;
+        }
+        Operation neu;
+        neu.matrix = M;
+        tag_operation_from_matrix(neu, matrix_tol);
+        ops.push_back(neu);
+        grew = true;
+        break;
+      }
+    }
+  }
+}
+
 void assign_conjugacy_classes(std::vector<Operation>& ops, double matrix_tol) {
   const int n = static_cast<int>(ops.size());
   std::vector<int> cls(n, -1);

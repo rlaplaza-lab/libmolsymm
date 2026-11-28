@@ -38,6 +38,22 @@ Fragmentation indices are 0-based.
     options:
       heading_level: 3
 
+::: molsymm.wyckoff_positions
+    options:
+      heading_level: 3
+
+::: molsymm.wyckoff_plans
+    options:
+      heading_level: 3
+
+::: molsymm.wyckoff_plan
+    options:
+      heading_level: 3
+
+::: molsymm.assemble_from_au
+    options:
+      heading_level: 3
+
 ## Types
 
 ::: molsymm.ZMatrixRow
@@ -66,6 +82,18 @@ Fragmentation indices are 0-based.
     options:
       heading_level: 3
 
+::: molsymm.WyckoffSite
+    options:
+      heading_level: 3
+
+::: molsymm.WyckoffOrbit
+    options:
+      heading_level: 3
+
+::: molsymm.WyckoffPlan
+    options:
+      heading_level: 3
+
 ## Examples
 
 ### Symmetrize geometry, forces, and Hessian
@@ -90,4 +118,10 @@ Fragmentation indices are 0-based.
 
 ```python
 --8<-- "tests/test_python_types.py:subgroup_assembly"
+```
+
+### Constructive Wyckoff geometry
+
+```python
+--8<-- "tests/test_python_types.py:wyckoff"
 ```

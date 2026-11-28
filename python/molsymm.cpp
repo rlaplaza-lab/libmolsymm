@@ -448,4 +448,78 @@ NB_MODULE(molsymm, m) {
       },
       nb::arg("entries"),
       nb::arg("primary") = 1e-3);
+
+  nb::class_<molsymm::WyckoffSite>(m, "WyckoffSite")
+      .def_ro("label", &molsymm::WyckoffSite::label)
+      .def_ro("site_symmetry", &molsymm::WyckoffSite::site_symmetry)
+      .def_ro("multiplicity", &molsymm::WyckoffSite::multiplicity)
+      .def_ro("degrees_of_freedom", &molsymm::WyckoffSite::degrees_of_freedom)
+      .def_prop_ro(
+          "projector",
+          [](const molsymm::WyckoffSite& s) { return cast_move(matrix_to_numpy(s.projector)); })
+      .def_prop_ro("chamber", [](const molsymm::WyckoffSite& s) {
+        return cast_move(positions_to_rows(s.chamber));
+      });
+
+  nb::class_<molsymm::WyckoffOrbit>(m, "WyckoffOrbit")
+      .def_ro("atomic_number", &molsymm::WyckoffOrbit::atomic_number)
+      .def_ro("label", &molsymm::WyckoffOrbit::label)
+      .def_ro("multiplicity", &molsymm::WyckoffOrbit::multiplicity)
+      .def_ro("degrees_of_freedom", &molsymm::WyckoffOrbit::degrees_of_freedom);
+
+  nb::class_<molsymm::WyckoffPlan>(m, "WyckoffPlan")
+      .def_ro("point_group", &molsymm::WyckoffPlan::point_group)
+      .def_ro("order", &molsymm::WyckoffPlan::order)
+      .def_ro("orbits", &molsymm::WyckoffPlan::orbits)
+      .def(
+          "assemble",
+          [](const molsymm::WyckoffPlan& plan, const Eigen::MatrixXd& positions) {
+            return plan.assemble(parse_positions(positions, static_cast<int>(plan.orbits.size())));
+          },
+          nb::arg("positions"));
+
+  m.def(
+      "wyckoff_positions",
+      [](const std::string& point_group) { return molsymm::wyckoff_positions(point_group); },
+      nb::arg("point_group"));
+
+  m.def(
+      "wyckoff_plans",
+      [](const std::string& point_group, const nb::object& composition) -> nb::object {
+        if (nb::isinstance<nb::int_>(composition)) {
+          return nb::cast(molsymm::wyckoff_plans(point_group, nb::cast<int>(composition)));
+        }
+        return nb::cast(
+            molsymm::wyckoff_plans(point_group, nb::cast<std::vector<int>>(composition)));
+      },
+      nb::arg("point_group"),
+      nb::arg("composition"));
+
+  m.def(
+      "wyckoff_plan",
+      [](const std::string& point_group,
+         const std::vector<std::string>& site_labels,
+         const std::vector<int>& atomic_numbers) {
+        return molsymm::wyckoff_plan(point_group, site_labels, atomic_numbers);
+      },
+      nb::arg("point_group"),
+      nb::arg("site_labels"),
+      nb::arg("atomic_numbers") = std::vector<int>{});
+
+  m.def(
+      "assemble_from_au",
+      [](const std::string& point_group,
+         const std::vector<int>& numbers,
+         const Eigen::MatrixXd& positions,
+         const std::vector<std::string>& site_labels) {
+        return molsymm::assemble_from_au(
+            point_group,
+            numbers,
+            parse_positions(positions, static_cast<int>(numbers.size())),
+            site_labels);
+      },
+      nb::arg("point_group"),
+      nb::arg("numbers"),
+      nb::arg("positions"),
+      nb::arg("site_labels"));
 }

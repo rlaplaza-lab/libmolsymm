@@ -1581,6 +1581,7 @@ void test_helpers_and_errors() {
 
 void test_group_math();
 void test_c_api();
+void test_wyckoff();
 
 int main() {
   try {
@@ -1601,6 +1602,7 @@ int main() {
     test_helpers_and_errors();
     test_group_math();
     test_c_api();
+    test_wyckoff();
   } catch (const std::exception& ex) {
     std::cerr << "exception: " << ex.what() << "\n";
     return 1;

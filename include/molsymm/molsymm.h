@@ -9,6 +9,8 @@ typedef struct molsymm_analysis molsymm_analysis;
 typedef struct molsymm_displacements molsymm_displacements;
 typedef struct molsymm_fragmentation molsymm_fragmentation;
 typedef struct molsymm_assembly molsymm_assembly;
+typedef struct molsymm_wyckoff_table molsymm_wyckoff_table;
+typedef struct molsymm_wyckoff_plans molsymm_wyckoff_plans;
 
 const char* molsymm_last_error(void);
 
@@ -113,6 +115,35 @@ int molsymm_assembly_piece_atoms(const molsymm_assembly* asm_, int piece, int* a
 int molsymm_assembly_n_free_axes(const molsymm_assembly* asm_, int site, int* out);
 int molsymm_assembly_free_axis(const molsymm_assembly* asm_, int site, int axis, double* xyz);
 int molsymm_assemble(const molsymm_assembly* asm_, const double* piece_xyz, double* xyz_out);
+
+/* Constructive Wyckoff positions / plans / assemble (finite groups only). */
+int molsymm_wyckoff_positions(const char* point_group, molsymm_wyckoff_table** out);
+void molsymm_free_wyckoff_table(molsymm_wyckoff_table* t);
+int molsymm_wyckoff_n_sites(const molsymm_wyckoff_table* t, int* out);
+int molsymm_wyckoff_site_label(const molsymm_wyckoff_table* t, int index, char* buf, int buflen);
+int molsymm_wyckoff_site_symmetry(const molsymm_wyckoff_table* t, int index, char* buf, int buflen);
+int molsymm_wyckoff_site_multiplicity(const molsymm_wyckoff_table* t, int index, int* out);
+int molsymm_wyckoff_site_dof(const molsymm_wyckoff_table* t, int index, int* out);
+
+int molsymm_wyckoff_plans_composition(const char* point_group,
+                                      const int* atomic_numbers,
+                                      int n,
+                                      molsymm_wyckoff_plans** out);
+int molsymm_wyckoff_plans_nsites(const char* point_group, int n_sites, molsymm_wyckoff_plans** out);
+void molsymm_free_wyckoff_plans(molsymm_wyckoff_plans* p);
+int molsymm_wyckoff_n_plans(const molsymm_wyckoff_plans* p, int* out);
+int molsymm_wyckoff_plan_n_orbits(const molsymm_wyckoff_plans* p, int plan, int* out);
+int molsymm_wyckoff_plan_orbit_label(
+    const molsymm_wyckoff_plans* p, int plan, int orbit, char* buf, int buflen);
+int molsymm_wyckoff_plan_orbit_z(const molsymm_wyckoff_plans* p, int plan, int orbit, int* out);
+
+/* site_labels[i] is the Wyckoff label for orbit i (length n_orbits). */
+int molsymm_assemble_from_au(const char* point_group,
+                             const int* representative_numbers,
+                             const double* au_xyz,
+                             int n_orbits,
+                             const char** site_labels,
+                             molsymm_analysis** out);
 
 #ifdef __cplusplus
 }

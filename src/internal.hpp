@@ -150,6 +150,12 @@ int symmetry_number_for(const std::string& name, int n);
 
 std::vector<std::string> constructive_subgroups(const std::string& name, int n);
 
+int expected_group_order(const std::string& name, int n);
+
+void close_group_abstract(std::vector<Operation>& ops, double matrix_tol, int max_order);
+std::vector<Operation> realize_point_group(const std::string& name);
+std::string name_of_operations(const std::vector<Operation>& ops);
+
 std::string classify_point_group(const std::vector<Operation>& ops,
                                  bool linear,
                                  bool has_inversion,

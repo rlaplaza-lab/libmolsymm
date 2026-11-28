@@ -10,6 +10,11 @@ module molsymm
   public :: ms_representative_atom, ms_n_copies, ms_copy_atoms, ms_fragment_mask
   public :: ms_reconstruct, ms_subgroup_assembly, ms_release_assembly
   public :: ms_assembly_n_pieces, ms_assembly_piece_atoms, ms_assemble
+  public :: ms_wyckoff_positions, ms_release_wyckoff_table, ms_wyckoff_n_sites
+  public :: ms_wyckoff_site_label, ms_wyckoff_site_multiplicity, ms_wyckoff_site_dof
+  public :: ms_wyckoff_plans_nsites, ms_release_wyckoff_plans, ms_wyckoff_n_plans
+  public :: ms_wyckoff_plan_n_orbits, ms_wyckoff_plan_orbit_label
+  public :: ms_assemble_from_au
 
   type, bind(c) :: ms_zatom
     integer(c_int) :: atomic_number
@@ -258,6 +263,102 @@ interface
     real(c_double), intent(in) :: piece_xyz(*)
     real(c_double), intent(out) :: xyz_out(*)
     integer(c_int) :: molsymm_assemble
+  end function
+
+  function molsymm_wyckoff_positions(pg, out) bind(c, name="molsymm_wyckoff_positions")
+    import :: c_int, c_ptr, c_char
+    character(kind=c_char), intent(in) :: pg(*)
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_positions
+  end function
+
+  subroutine molsymm_free_wyckoff_table(t) bind(c, name="molsymm_free_wyckoff_table")
+    import :: c_ptr
+    type(c_ptr), value :: t
+  end subroutine
+
+  function molsymm_wyckoff_n_sites(t, out) bind(c, name="molsymm_wyckoff_n_sites")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: t
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_n_sites
+  end function
+
+  function molsymm_wyckoff_site_label(t, index, buf, buflen) &
+      bind(c, name="molsymm_wyckoff_site_label")
+    import :: c_int, c_ptr, c_char
+    type(c_ptr), value :: t
+    integer(c_int), value :: index, buflen
+    character(kind=c_char), intent(out) :: buf(*)
+    integer(c_int) :: molsymm_wyckoff_site_label
+  end function
+
+  function molsymm_wyckoff_site_multiplicity(t, index, out) &
+      bind(c, name="molsymm_wyckoff_site_multiplicity")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: t
+    integer(c_int), value :: index
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_site_multiplicity
+  end function
+
+  function molsymm_wyckoff_site_dof(t, index, out) bind(c, name="molsymm_wyckoff_site_dof")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: t
+    integer(c_int), value :: index
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_site_dof
+  end function
+
+  function molsymm_wyckoff_plans_nsites(pg, n_sites, out) &
+      bind(c, name="molsymm_wyckoff_plans_nsites")
+    import :: c_int, c_ptr, c_char
+    character(kind=c_char), intent(in) :: pg(*)
+    integer(c_int), value :: n_sites
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_plans_nsites
+  end function
+
+  subroutine molsymm_free_wyckoff_plans(p) bind(c, name="molsymm_free_wyckoff_plans")
+    import :: c_ptr
+    type(c_ptr), value :: p
+  end subroutine
+
+  function molsymm_wyckoff_n_plans(p, out) bind(c, name="molsymm_wyckoff_n_plans")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: p
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_n_plans
+  end function
+
+  function molsymm_wyckoff_plan_n_orbits(p, plan, out) &
+      bind(c, name="molsymm_wyckoff_plan_n_orbits")
+    import :: c_int, c_ptr
+    type(c_ptr), value :: p
+    integer(c_int), value :: plan
+    integer(c_int), intent(out) :: out
+    integer(c_int) :: molsymm_wyckoff_plan_n_orbits
+  end function
+
+  function molsymm_wyckoff_plan_orbit_label(p, plan, orbit, buf, buflen) &
+      bind(c, name="molsymm_wyckoff_plan_orbit_label")
+    import :: c_int, c_ptr, c_char
+    type(c_ptr), value :: p
+    integer(c_int), value :: plan, orbit, buflen
+    character(kind=c_char), intent(out) :: buf(*)
+    integer(c_int) :: molsymm_wyckoff_plan_orbit_label
+  end function
+
+  function molsymm_assemble_from_au(pg, z, au_xyz, n_orbits, labels, out) &
+      bind(c, name="molsymm_assemble_from_au")
+    import :: c_int, c_ptr, c_char, c_double
+    character(kind=c_char), intent(in) :: pg(*)
+    integer(c_int), intent(in) :: z(*)
+    real(c_double), intent(in) :: au_xyz(*)
+    integer(c_int), value :: n_orbits
+    type(c_ptr), intent(in) :: labels(*)
+    type(c_ptr), intent(out) :: out
+    integer(c_int) :: molsymm_assemble_from_au
   end function
 end interface
 
@@ -686,6 +787,153 @@ contains
     do i = 1, n
       xyz_out(:, i) = flat_out(3*(i-1)+1:3*(i-1)+3)
     end do
+  end subroutine
+
+  subroutine ms_wyckoff_positions(point_group, thandle, status)
+    character(len=*), intent(in) :: point_group
+    type(c_ptr), intent(out) :: thandle
+    integer(c_int), intent(out) :: status
+    character(kind=c_char), allocatable :: cname(:)
+    integer :: i, n
+    n = len_trim(point_group)
+    allocate(cname(n+1))
+    do i = 1, n
+      cname(i) = point_group(i:i)
+    end do
+    cname(n+1) = c_null_char
+    status = molsymm_wyckoff_positions(cname, thandle)
+  end subroutine
+
+  subroutine ms_release_wyckoff_table(thandle)
+    type(c_ptr), intent(inout) :: thandle
+    call molsymm_free_wyckoff_table(thandle)
+    thandle = c_null_ptr
+  end subroutine
+
+  subroutine ms_wyckoff_n_sites(thandle, n, status)
+    type(c_ptr), intent(in) :: thandle
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_wyckoff_n_sites(thandle, n)
+  end subroutine
+
+  subroutine ms_wyckoff_site_label(thandle, index, label, status)
+    type(c_ptr), intent(in) :: thandle
+    integer(c_int), intent(in) :: index
+    character(len=*), intent(out) :: label
+    integer(c_int), intent(out) :: status
+    character(kind=c_char) :: buf(64)
+    integer :: i
+    status = molsymm_wyckoff_site_label(thandle, index - 1_c_int, buf, 64_c_int)
+    label = ""
+    if (status /= 0) return
+    do i = 1, 64
+      if (buf(i) == c_null_char) exit
+      label(i:i) = buf(i)
+    end do
+  end subroutine
+
+  subroutine ms_wyckoff_site_multiplicity(thandle, index, mult, status)
+    type(c_ptr), intent(in) :: thandle
+    integer(c_int), intent(in) :: index
+    integer(c_int), intent(out) :: mult, status
+    status = molsymm_wyckoff_site_multiplicity(thandle, index - 1_c_int, mult)
+  end subroutine
+
+  subroutine ms_wyckoff_site_dof(thandle, index, dof, status)
+    type(c_ptr), intent(in) :: thandle
+    integer(c_int), intent(in) :: index
+    integer(c_int), intent(out) :: dof, status
+    status = molsymm_wyckoff_site_dof(thandle, index - 1_c_int, dof)
+  end subroutine
+
+  subroutine ms_wyckoff_plans_nsites(point_group, n_sites, phandle, status)
+    character(len=*), intent(in) :: point_group
+    integer(c_int), intent(in) :: n_sites
+    type(c_ptr), intent(out) :: phandle
+    integer(c_int), intent(out) :: status
+    character(kind=c_char), allocatable :: cname(:)
+    integer :: i, n
+    n = len_trim(point_group)
+    allocate(cname(n+1))
+    do i = 1, n
+      cname(i) = point_group(i:i)
+    end do
+    cname(n+1) = c_null_char
+    status = molsymm_wyckoff_plans_nsites(cname, n_sites, phandle)
+  end subroutine
+
+  subroutine ms_release_wyckoff_plans(phandle)
+    type(c_ptr), intent(inout) :: phandle
+    call molsymm_free_wyckoff_plans(phandle)
+    phandle = c_null_ptr
+  end subroutine
+
+  subroutine ms_wyckoff_n_plans(phandle, n, status)
+    type(c_ptr), intent(in) :: phandle
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_wyckoff_n_plans(phandle, n)
+  end subroutine
+
+  subroutine ms_wyckoff_plan_n_orbits(phandle, plan, n, status)
+    type(c_ptr), intent(in) :: phandle
+    integer(c_int), intent(in) :: plan
+    integer(c_int), intent(out) :: n, status
+    status = molsymm_wyckoff_plan_n_orbits(phandle, plan - 1_c_int, n)
+  end subroutine
+
+  subroutine ms_wyckoff_plan_orbit_label(phandle, plan, orbit, label, status)
+    type(c_ptr), intent(in) :: phandle
+    integer(c_int), intent(in) :: plan, orbit
+    character(len=*), intent(out) :: label
+    integer(c_int), intent(out) :: status
+    character(kind=c_char) :: buf(64)
+    integer :: i
+    status = molsymm_wyckoff_plan_orbit_label(phandle, plan - 1_c_int, orbit - 1_c_int, buf, 64_c_int)
+    label = ""
+    if (status /= 0) return
+    do i = 1, 64
+      if (buf(i) == c_null_char) exit
+      label(i:i) = buf(i)
+    end do
+  end subroutine
+
+  subroutine ms_assemble_from_au(point_group, z, au_xyz, labels, handle, status)
+    character(len=*), intent(in) :: point_group
+    integer(c_int), intent(in) :: z(:)
+    real(c_double), intent(in) :: au_xyz(:,:)  ! (3, n_orbits)
+    character(len=*), intent(in) :: labels(:)
+    type(c_ptr), intent(out) :: handle
+    integer(c_int), intent(out) :: status
+    character(kind=c_char), allocatable :: cname(:)
+    character(kind=c_char), allocatable, target :: clabels(:,:)
+    type(c_ptr), allocatable :: label_ptrs(:)
+    real(c_double), allocatable :: flat(:)
+    integer :: i, j, n, norb, maxlen
+    norb = size(z)
+    if (size(au_xyz, 2) /= norb .or. size(labels) /= norb) then
+      status = -1_c_int
+      return
+    end if
+    n = len_trim(point_group)
+    allocate(cname(n+1))
+    do i = 1, n
+      cname(i) = point_group(i:i)
+    end do
+    cname(n+1) = c_null_char
+    maxlen = 0
+    do i = 1, norb
+      maxlen = max(maxlen, len_trim(labels(i)))
+    end do
+    allocate(clabels(maxlen+1, norb), label_ptrs(norb), flat(3*norb))
+    do i = 1, norb
+      clabels(:, i) = c_null_char
+      do j = 1, len_trim(labels(i))
+        clabels(j, i) = labels(i)(j:j)
+      end do
+      label_ptrs(i) = c_loc(clabels(1, i))
+      flat(3*(i-1)+1:3*(i-1)+3) = au_xyz(:, i)
+    end do
+    status = molsymm_assemble_from_au(cname, z, flat, int(norb, c_int), label_ptrs, handle)
   end subroutine
 
 end module molsymm

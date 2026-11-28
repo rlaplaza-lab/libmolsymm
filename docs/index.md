@@ -1,8 +1,9 @@
 # libmolsymm
 
 Point-group detection, character tables, subgroups, symmetrization,
-asymmetric-unit reconstruction, and symmetry-reduced finite-difference
-displacements. C++20 core with C, Python, and Fortran bindings.
+asymmetric-unit reconstruction, constructive Wyckoff assembly from a group
+label and site plan, and symmetry-reduced finite-difference displacements.
+C++20 core with C, Python, and Fortran bindings.
 
 API reference: [Python](api/python.md), [C++](api/cpp.md), [C](api/c.md),
 [Fortran](api/fortran.md). Quickstarts live in the

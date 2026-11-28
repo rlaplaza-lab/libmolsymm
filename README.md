@@ -6,9 +6,10 @@
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://rlaplaza-lab.github.io/libmolsymm/)
 
 Point-group detection, character tables, subgroups, symmetrization,
-asymmetric-unit reconstruction, and symmetry-reduced finite-difference
-displacements. C++20 core with C, Python, and Fortran bindings. Coordinates
-are ångströms; Z-matrix angles are radians (1-based indices, `0` unused).
+asymmetric-unit reconstruction, constructive Wyckoff assembly from a group
+label and site plan, and symmetry-reduced finite-difference displacements.
+C++20 core with C, Python, and Fortran bindings. Coordinates are ångströms;
+Z-matrix angles are radians (1-based indices, `0` unused).
 **[API docs](https://rlaplaza-lab.github.io/libmolsymm/)** cover all bindings.
 
 ```bash
@@ -43,6 +44,12 @@ molsymm::Molecule full = molsymm::reconstruct(frag, reps);
 auto asmbl = molsymm::subgroup_assembly(a, "C2");
 molsymm::Molecule lower = molsymm::assemble(asmbl, pieces);
 
+// Constructive: group + site plan → Analysis (Cotton frame)
+auto sites = molsymm::wyckoff_positions("Oh");
+auto plans = molsymm::wyckoff_plans("Oh", std::vector<int>{16, 9, 9, 9, 9, 9, 9});
+molsymm::Analysis built = molsymm::assemble_from_au(
+    "Oh", {16, 9}, {molsymm::Vec3::Zero(), molsymm::Vec3(0, 0, 1.56)}, {"1a", "6a"});
+
 molsymm::Analysis z = molsymm::analyze(
     molsymm::molecule_from_zmatrix({
         {8, 0, 0, 0, 0.0, 0.0, 0.0},
@@ -54,7 +61,8 @@ molsymm::Analysis z = molsymm::analyze(
 ## C
 
 `#include "molsymm/molsymm.h"` — opaque `molsymm_analysis*` / `molsymm_displacements*` /
-`molsymm_fragmentation*` / `molsymm_assembly*`. `xyz` is length `3*n` (x₀,y₀,z₀,…).
+`molsymm_fragmentation*` / `molsymm_assembly*` / `molsymm_wyckoff_table*` /
+`molsymm_wyckoff_plans*`. `xyz` is length `3*n` (x₀,y₀,z₀,…).
 Status `0` is success; see `molsymm_last_error()`.
 
 ```c
@@ -84,6 +92,12 @@ molsymm_assembly* asm_ = NULL;
 molsymm_subgroup_assembly(a, "C2", &asm_);
 molsymm_assemble(asm_, piece_xyz, xyz_out);  /* piece_xyz concatenated */
 molsymm_free_assembly(asm_);
+/* Constructive Wyckoff: */
+molsymm_wyckoff_table* wt = NULL;
+molsymm_wyckoff_positions("Oh", &wt);
+molsymm_free_wyckoff_table(wt);
+const char* labels[] = {"1a", "6a"};
+molsymm_assemble_from_au("Oh", z_au, au_xyz, 2, labels, &a);
 molsymm_free(a);
 
 molsymm_zatom rows[] = {
@@ -120,6 +134,11 @@ xyz = frag.reconstruct(positions[frag.representatives])
 asmbl = a.subgroup_assembly("C2")
 xyz = asmbl.assemble([positions[atoms] for atoms in asmbl.pieces])
 
+sites = molsymm.wyckoff_positions("Oh")
+plans = molsymm.wyckoff_plans("Oh", [16, 9, 9, 9, 9, 9, 9])
+a = molsymm.assemble_from_au("Oh", [16, 9], [[0, 0, 0], [0, 0, 1.56]],
+                             site_labels=["1a", "6a"])
+
 ang = 104.5 * np.pi / 180.0
 a = molsymm.analyze_zmatrix([(8,), (1, 1, 0.957), (1, 1, 0.957, 2, ang)])
 xyz = molsymm.zmatrix_to_xyz([(8,), (1, 1, 0.957), (1, 1, 0.957, 2, ang)])
@@ -150,6 +169,8 @@ call ms_release_fragmentation(fhandle)
 call ms_subgroup_assembly(handle, "C2", ahandle, status)
 call ms_assemble(ahandle, piece_xyz, xyz_out, status)   ! piece_xyz is (3,nasym)
 call ms_release_assembly(ahandle)
+call ms_wyckoff_positions("Oh", thandle, status)
+call ms_assemble_from_au("Oh", z_au, au_xyz, site_labels, handle, status)
 call ms_release(handle)
 
 type(ms_zatom) :: rows(3)

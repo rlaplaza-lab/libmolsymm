@@ -506,3 +506,55 @@ def zmatrix_to_xyz(entries: Sequence[ZMatrixRow]) -> Float64Array:
     RuntimeError
         If a row is malformed.
     """
+
+class WyckoffSite:
+    """One special position of a finite point group (Cotton frame)."""
+
+    label: str
+    site_symmetry: str
+    multiplicity: int
+    degrees_of_freedom: int
+    projector: Float64Array
+    chamber: Float64Array
+
+class WyckoffOrbit:
+    """One orbit assignment inside a ``WyckoffPlan``."""
+
+    atomic_number: int
+    label: str
+    multiplicity: int
+    degrees_of_freedom: int
+
+class WyckoffPlan:
+    """Orbit assignment for a composition under a point group."""
+
+    point_group: str
+    order: int
+    orbits: list[WyckoffOrbit]
+
+    def assemble(self, positions: ArrayLike) -> Analysis:
+        """Expand one Cotton-frame position per orbit into an ``Analysis``."""
+
+def wyckoff_positions(point_group: str) -> list[WyckoffSite]:
+    """List special positions of a finite Schönflies group."""
+
+def wyckoff_plans(
+    point_group: str,
+    composition: Sequence[int] | int,
+) -> list[WyckoffPlan]:
+    """Partition a composition (or ``n_sites``) into orbit plans."""
+
+def wyckoff_plan(
+    point_group: str,
+    site_labels: Sequence[str],
+    atomic_numbers: Sequence[int] = (),
+) -> WyckoffPlan:
+    """Build one plan from explicit site labels."""
+
+def assemble_from_au(
+    point_group: str,
+    numbers: Sequence[int],
+    positions: ArrayLike,
+    site_labels: Sequence[str],
+) -> Analysis:
+    """Expand asymmetric-unit coordinates for the given sites into an ``Analysis``."""

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(molsymm VERSION 2.0.0 LANGUAGES CXX)
+project(molsymm VERSION 3.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -46,6 +46,7 @@ set(MOLSYMM_SOURCES
   src/symmetrize.cpp
   src/displacements.cpp
   src/fragment.cpp
+  src/wyckoff.cpp
   src/c_api.cpp
 )
 
@@ -146,6 +147,7 @@ if(MOLSYMM_BUILD_TESTS)
     tests/test_main.cpp
     tests/test_group_math.cpp
     tests/test_c_api.cpp
+    tests/test_wyckoff.cpp
   )
   target_link_libraries(molsymm_tests PRIVATE molsymm)
   molsymm_set_warnings(molsymm_tests)

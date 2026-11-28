@@ -29,6 +29,10 @@ Umbrella header re-exports `analysis`, `displacement`, `fragment`, `molecule`,
 | `unique_displacements(analysis, step=1e-3)` | → `DisplacementSet` with `plus` / `minus` |
 | `fragmentation(analysis)` / `reconstruct(frag, reps)` | Asymmetric unit ↔ full molecule |
 | `subgroup_assembly(analysis, name)` / `assemble(asm, pieces)` | Lower-symmetry assembly |
+| `wyckoff_positions` / `wyckoff_plans` / `wyckoff_plan` / `assemble_from_au` | Group + site plan → `Analysis` |
+
+Finite groups only (Cotton frame). `WyckoffPlan::assemble` returns an `Analysis`
+usable with `fragmentation` / `subgroup_assembly`.
 
 `DisplacementSet` provides `gradient_from_energies` and `hessian_from_gradients`.
 `Symmetrized` holds `rmsd`, `positions` (input frame), optional `forces` / `hessian`.
@@ -41,7 +45,9 @@ C++-only helpers (not wrapped in other bindings): `symmetrize_gradient`,
 molsymm::Analysis a = molsymm::analyze(molsymm::Molecule(/*Z*/, /*xyz flat*/));
 a.select_subgroup("C2v");
 a.symmetrize();
-auto d = molsymm::unique_displacements(a, 1e-3);
 auto frag = molsymm::fragmentation(a);
 molsymm::Molecule full = molsymm::reconstruct(frag, reps);
+
+auto built = molsymm::assemble_from_au(
+    "Oh", {16, 9}, {molsymm::Vec3::Zero(), molsymm::Vec3(0, 0, 1.56)}, {"1a", "6a"});
 ```

@@ -83,10 +83,17 @@ void test_c_api_nulls() {
   expect(molsymm_assemble(nullptr, nullptr, nullptr) == -1, "assemble null");
   expect(molsymm_zmatrix_to_xyz(nullptr, 0, nullptr) == -1, "zmatrix_to_xyz null");
   expect(molsymm_analyze_zmatrix(nullptr, 0, 1e-3, nullptr) == -1, "analyze_zmatrix null");
+  expect(molsymm_wyckoff_positions(nullptr, nullptr) == -1, "wyckoff_positions null");
+  expect(molsymm_wyckoff_n_sites(nullptr, nullptr) == -1, "wyckoff_n_sites null");
+  expect(molsymm_wyckoff_plans_nsites(nullptr, 0, nullptr) == -1, "wyckoff_plans_nsites null");
+  expect(molsymm_assemble_from_au(nullptr, nullptr, nullptr, 0, nullptr, nullptr) == -1,
+         "assemble_from_au null");
   molsymm_free(nullptr);
   molsymm_free_displacements(nullptr);
   molsymm_free_fragmentation(nullptr);
   molsymm_free_assembly(nullptr);
+  molsymm_free_wyckoff_table(nullptr);
+  molsymm_free_wyckoff_plans(nullptr);
 }
 
 void test_c_api_water() {
@@ -302,12 +309,61 @@ void test_c_api_symmetrize_and_zmatrix() {
   }
 }
 
+void test_c_api_wyckoff() {
+  molsymm_wyckoff_table* table = nullptr;
+  expect(molsymm_wyckoff_positions("Oh", &table) == 0 && table, "wyckoff_positions Oh");
+  if (table) {
+    int ns = 0;
+    expect(molsymm_wyckoff_n_sites(table, &ns) == 0 && ns >= 5, "wyckoff_n_sites");
+    char label[16] = {};
+    char sym[16] = {};
+    int mult = 0;
+    int dof = 0;
+    expect(molsymm_wyckoff_site_label(table, 0, label, 16) == 0, "wyckoff_site_label");
+    expect(molsymm_wyckoff_site_symmetry(table, 0, sym, 16) == 0, "wyckoff_site_symmetry");
+    expect(molsymm_wyckoff_site_multiplicity(table, 0, &mult) == 0 && mult == 1,
+           "wyckoff_site_multiplicity origin");
+    expect(molsymm_wyckoff_site_dof(table, 0, &dof) == 0 && dof == 0, "wyckoff_site_dof origin");
+    molsymm_free_wyckoff_table(table);
+  }
+  expect(molsymm_wyckoff_positions("Cinfv", &table) == -1, "wyckoff_positions infinite");
+
+  molsymm_wyckoff_plans* plans = nullptr;
+  expect(molsymm_wyckoff_plans_nsites("Oh", 12, &plans) == 0 && plans, "wyckoff_plans_nsites");
+  if (plans) {
+    int np = 0;
+    expect(molsymm_wyckoff_n_plans(plans, &np) == 0 && np >= 2, "wyckoff_n_plans");
+    int norb = 0;
+    expect(molsymm_wyckoff_plan_n_orbits(plans, 0, &norb) == 0 && norb >= 1,
+           "wyckoff_plan_n_orbits");
+    char olabel[16] = {};
+    expect(molsymm_wyckoff_plan_orbit_label(plans, 0, 0, olabel, 16) == 0,
+           "wyckoff_plan_orbit_label");
+    molsymm_free_wyckoff_plans(plans);
+  }
+
+  const int z[2] = {16, 9};
+  const double au[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 1.56};
+  const char* labels[2] = {"1a", "6a"};
+  molsymm_analysis* a = nullptr;
+  expect(molsymm_assemble_from_au("Oh", z, au, 2, labels, &a) == 0 && a, "assemble_from_au SF6");
+  if (a) {
+    char pg[16] = {};
+    int n = 0;
+    expect(molsymm_point_group(a, pg, 16) == 0 && std::strcmp(pg, "Oh") == 0,
+           "assemble_from_au Oh");
+    expect(molsymm_n_atoms(a, &n) == 0 && n == 7, "assemble_from_au n=7");
+    molsymm_free(a);
+  }
+}
+
 } // namespace
 
 void test_c_api() {
   test_c_api_nulls();
   test_c_api_water();
   test_c_api_symmetrize_and_zmatrix();
+  test_c_api_wyckoff();
   if (g_failed) {
     throw std::runtime_error(std::to_string(g_failed) + " c-api failures (" +
                              std::to_string(g_passed) + " checks passed)");
